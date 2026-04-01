@@ -1,0 +1,45 @@
+# Raw data (too large for git)
+data/raw/
+
+# Processed data (regenerate with preprocess.py)
+data/processed/
+
+# Model weights
+models/*.pt
+models/*.npz
+models/saved/
+
+# Result artefacts (regenerate by running scripts)
+results/plots/
+results/figures/
+results/metrics/
+results/logs/
+results/*.npz
+results/*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Presentations
+*.pptx
+*.ppt
+*.key
+
+# OS / WSL artefacts
+.DS_Store
+Thumbs.db
+*.Zone.Identifier
+
+# Conda / micromamba environments
+.conda/
+envs/
