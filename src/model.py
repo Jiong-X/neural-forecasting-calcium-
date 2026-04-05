@@ -5,69 +5,88 @@
 """
 model.py
 --------
-Probabilistic forecasting model.
-Outputs a mean and log-variance for each predicted timestep,
-allowing uncertainty quantification via a Gaussian likelihood.
+Probabilistic POCO forecaster — Population-Conditioned neural activity predictor.
+
+Wraps ProbabilisticPOCO from POCO_prob.py into the standard
+(x) -> (mean, logvar) interface expected by train_utils.py.
+
+Architecture:
+  - Perceiver-IO encoder with rotary positional encodings (standalone_poco.py)
+  - FiLM conditioning: population embedding modulates per-neuron predictions
+  - Gaussian output head: predicts mu and log-sigma per neuron per step
+  - Trained with Gaussian NLL loss
 """
 
+import sys
+import os
 import torch
 import torch.nn as nn
+
+# add project root to path so POCO_prob and standalone_poco are importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from POCO_prob import ProbabilisticPOCO, nll_loss
+from standalone_poco import NeuralPredictionConfig
 
 
 class ProbabilisticForecaster(nn.Module):
     """
-    Transformer-based probabilistic forecaster.
-    Outputs:
-        mean   — (B, pred_length) point prediction
-        logvar — (B, pred_length) log-variance (aleatoric uncertainty)
+    Thin wrapper around ProbabilisticPOCO that exposes a simple
+    (x) -> (mean, logvar) interface compatible with train_utils.py.
+
+    Input:
+        x : (B, context_len, N)  — batch of context windows
+
+    Output:
+        mean   : (B, pred_len, N)  — predicted mean activity
+        logvar : (B, pred_len, N)  — predicted log-variance (aleatoric uncertainty)
     """
 
-    def __init__(self, seq_length=64, pred_length=16, d_model=64, nhead=4,
-                 num_layers=2, dim_feedforward=128, dropout=0.1):
+    def __init__(self,
+                 seq_length:  int = 64,
+                 pred_length: int = 16,
+                 n_channels:  int = 128):
         super().__init__()
-        self.seq_length  = seq_length
-        self.pred_length = pred_length
 
-        # Input projection: scalar → d_model
-        self.input_proj = nn.Linear(1, d_model)
+        self.pred_length  = pred_length
+        self.context_len  = seq_length - pred_length
+        self.n_channels   = n_channels
 
-        # Positional encoding (learned)
-        self.pos_emb = nn.Embedding(seq_length, d_model)
+        # Build POCO config — matching paper defaults
+        config = NeuralPredictionConfig()
+        config.seq_length          = seq_length
+        config.pred_length         = pred_length
+        config.compression_factor  = 16
+        config.decoder_hidden_size = 128
+        config.conditioning_dim    = 1024
+        config.decoder_num_layers  = 1
+        config.decoder_num_heads   = 16
+        config.poyo_num_latents    = 8
 
-        # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout, batch_first=True
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.poco = ProbabilisticPOCO(config, [[n_channels]])
 
-        # Output heads — mean and log-variance
-        self.head_mean   = nn.Linear(d_model, pred_length)
-        self.head_logvar = nn.Linear(d_model, pred_length)
-
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         """
-        x: (B, seq_length)
-        returns: mean (B, pred_length), logvar (B, pred_length)
+        x : (B, context_len, N)
+        returns:
+            mean   : (B, pred_len, N)
+            logvar : (B, pred_len, N)
         """
-        B, L = x.shape
-        x = x.unsqueeze(-1)                                    # (B, L, 1)
-        x = self.input_proj(x)                                 # (B, L, d_model)
+        # POCO expects list of (L, B, N) tensors — one per session
+        x_list = [x.permute(1, 0, 2)]          # (context_len, B, N)
+        dists   = self.poco(x_list)             # list of Normal distributions
+        dist    = dists[0]                      # single session
 
-        pos  = torch.arange(L, device=x.device)
-        x    = x + self.pos_emb(pos)                           # add positional encoding
-
-        x    = self.encoder(x)                                 # (B, L, d_model)
-        cls  = x[:, -1, :]                                     # use last token as summary
-
-        mean   = self.head_mean(cls)                           # (B, pred_length)
-        logvar = self.head_logvar(cls)                         # (B, pred_length)
+        mean   = dist.mean.permute(1, 0, 2)     # (B, pred_len, N)
+        # convert sigma -> logvar = 2 * log(sigma)
+        logvar = 2 * dist.scale.log().permute(1, 0, 2)
         return mean, logvar
 
-    def sample(self, x, n_samples=50):
-        """Draw n_samples predictions for uncertainty estimation."""
-        mean, logvar = self.forward(x)
-        std  = (0.5 * logvar).exp()
-        eps  = torch.randn(n_samples, *mean.shape, device=x.device)
-        return mean + eps * std                                # (n_samples, B, pred_length)
+    def predict_distribution(self, x: torch.Tensor):
+        """
+        Returns the full Normal distribution for uncertainty analysis.
+        x : (B, context_len, N)
+        returns: torch.distributions.Normal with event shape (pred_len, B, N)
+        """
+        x_list = [x.permute(1, 0, 2)]
+        return self.poco(x_list)[0]
