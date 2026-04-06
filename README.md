@@ -95,20 +95,57 @@ Core dependencies: `torch`, `numpy`, `matplotlib`, `einops`, `scipy`
 
 ### Recommended dataset — Zebrafish whole-brain calcium imaging (Ahrens lab)
 
-> **Download:** https://janelia.figshare.com/articles/dataset/Whole-brain_light-sheet_imaging_data/7272617
+> **Source:** https://janelia.figshare.com/articles/dataset/Whole-brain_light-sheet_imaging_data/7272617
 
 The dataset contains whole-brain GCaMP fluorescence recordings from larval zebrafish
 (~80,000 neuron ROIs, ~2,880 timesteps per session at ~2.1 Hz).
 The `CellResp` array in each `TimeSeries.h5` is already baseline-corrected —
 no additional ΔF/F step is needed.
 
-Place each subject's file as:
+### Automatic retrieval (recommended)
+
+**No manual download needed.** Simply run:
+
+```bash
+python train.py
+```
+
+`src/dataset.py` handles everything automatically in this order:
+
+```
+1. data/processed/0.npz exists?  → load directly (fastest)
+2. data/raw/subject_0/TimeSeries.h5 exists?  → preprocess to .npz
+3. Neither found?  → download subject_1.zip (~2 GB) from Janelia figshare,
+                     extract TimeSeries.h5, preprocess to .npz, remove ZIP
+```
+
+The first run takes several minutes (download + preprocessing).
+All subsequent runs load instantly from `data/processed/0.npz`.
+
+> **Note:** If you have a corrupted or empty `TimeSeries.h5` from a previous
+> failed download, delete it first:
+> ```bash
+> rm data/raw/subject_0/TimeSeries.h5
+> python train.py
+> ```
+
+### Manual placement (multi-session models)
+
+The multi-session models (`POCO_multisession.py`, `POCO_prob_multisession.py`)
+require subjects 0–3. Download them manually from the figshare link above
+and place as:
+
 ```
 data/raw/
 ├── subject_0/TimeSeries.h5
 ├── subject_1/TimeSeries.h5
 ├── subject_2/TimeSeries.h5
 └── subject_3/TimeSeries.h5
+```
+
+Then preprocess all subjects:
+```bash
+python preprocess.py --raw_dir data/raw --out_dir data/processed --subjects 0 1 2 3
 ```
 
 ### Using your own data
@@ -164,24 +201,7 @@ python dataloader.py --path data/raw/subject_0/TimeSeries.h5 --fmt h5
 
 ## Step-by-step Pipeline
 
-### Step 1 — Preprocess (Ahrens dataset only)
-
-Skip if using your own data directly via `dataloader.py`.
-
-```bash
-python preprocess.py \
-    --raw_dir  data/raw \
-    --out_dir  data/processed \
-    --n_pcs    128 \
-    --subjects 0 1 2 3
-```
-
-Saves `data/processed/{0,1,2,3}.npz` each containing:
-- `PC` — principal component traces `(n_pcs, T)`
-- `M`  — z-scored neuron traces `(n_neurons, T)`
-- `valid_indices` — boolean ROI quality mask
-
-### Step 2 — Train
+### Step 1 — Train
 
 #### All models sequentially
 
@@ -222,7 +242,7 @@ python POCO_prob_multisession.py
 
 Checkpoints are saved to `models/` and loss curves to `results/`.
 
-### Step 3 — Analysis
+### Step 2 — Analysis
 
 ```bash
 # Uncertainty decomposition (requires POCO_prob checkpoint)
@@ -246,7 +266,7 @@ python POCO_studentt.py --df 7    # train Student-t model with ν=7
 python compare_calibration.py     # reliability diagram: POCO_prob vs POCO_studentt
 ```
 
-### Step 4 — Visualise
+### Step 3 — Visualise
 
 ```bash
 python plot_poco_prob.py    # prediction intervals and uncertainty bands
