@@ -41,6 +41,7 @@ COMP0197-project/
 ├── POCO.py                           # POCO deterministic — single session
 ├── POCO_prob.py                      # POCO probabilistic — Gaussian N(μ, σ²)
 ├── POCO_prob_highdrop.py             # POCO probabilistic — higher dropout (lin=0.6)
+├── POCO_studentt.py                  # POCO probabilistic — Student-t output head
 ├── POCO_multisession.py              # POCO deterministic — cross-animal (subjects 0,1,2 → 3)
 ├── POCO_prob_multisession.py         # POCO probabilistic — cross-animal
 │
@@ -49,6 +50,11 @@ COMP0197-project/
 ├── compare_uncertainty.py            # Normal vs high-dropout uncertainty comparison
 ├── eval_horizon.py                   # MAE / NLL as a function of prediction horizon
 ├── calibration.py                    # Reliability diagram — empirical vs nominal coverage
+├── compare_calibration.py            # Calibration comparison: POCO_prob vs POCO_studentt
+├── gaussian_diagnostics.py           # Shapiro-Wilk + Q-Q plots per PC
+├── normality_pooled.py               # Pooled normality test (skewness, kurtosis, D'Agostino)
+├── bimodality_check.py               # Bimodality coefficient + per-neuron KDE
+├── estimate_df.py                    # Estimate Student-t ν from residuals (kurtosis + MLE)
 ├── plot_poco_prob.py                 # Prediction intervals and uncertainty bands
 ├── plot_comparison.py                # MAE / MSE bar charts (NLinear, TSMixer, POCO det/prob)
 │
@@ -228,6 +234,16 @@ python eval_horizon.py
 
 # Calibration — does stated confidence match empirical coverage?
 python calibration.py
+
+# Gaussian likelihood validation
+python normality_pooled.py        # pooled skewness, kurtosis, D'Agostino test + Q-Q
+python gaussian_diagnostics.py    # per-PC Shapiro-Wilk + Q-Q plots
+python bimodality_check.py        # bimodality coefficient + KDE per neuron
+
+# Student-t alternative (empirically motivated by excess kurtosis)
+python estimate_df.py             # estimate best-fit ν via kurtosis formula and MLE
+python POCO_studentt.py --df 7    # train Student-t model with ν=7
+python compare_calibration.py     # reliability diagram: POCO_prob vs POCO_studentt
 ```
 
 ### Step 4 — Visualise
@@ -383,6 +399,37 @@ MAE in z-score units. `—` = trained with NLL loss; MSE not directly comparable
 |-------------------|-----------|-----------|-----------------|
 | POCO prob         | 0.3597    | 0.0268    | 7.5%            |
 | POCO prob hi-drop | 0.2602    | 0.0339    | 13.0%           |
+
+---
+
+## Gaussian Likelihood Validation
+
+The Gaussian output head in POCO_prob is validated both theoretically and empirically.
+
+**Theoretical justification**
+- Maximum entropy principle: Gaussian makes the fewest assumptions given only mean and variance constraints
+- Central Limit Theorem: PCA projections are linear combinations of ~80,000 neurons; aggregates tend toward Gaussianity
+- Standard in the literature: POCO, LFADS, NDT all use Gaussian likelihoods on z-scored / PCA-projected activity
+
+**Empirical findings** (pooled standardised residuals, n = 1,050,624)
+
+| Statistic        | Value   | Interpretation                          |
+|------------------|---------|-----------------------------------------|
+| Skewness         | +0.135  | Near-symmetric — Gaussian centre holds  |
+| Excess kurtosis  | +2.386  | Mild heavy tails — isolated burst events|
+| R² (Q-Q plot)    | 0.9937  | 99.4% of quantile variance explained    |
+
+The heavy tails originate from sudden neural burst events (stimulus responses, state
+transitions) — biologically meaningful activity that should not be removed. The Gaussian
+σ head implicitly learns to inflate uncertainty around volatile timepoints, achieving
+well-calibrated predictive intervals despite the mild tail deviation.
+
+**Student-t comparison**
+A Student-t model (ν estimated via kurtosis formula ≈ 7, MLE ≈ 12) was trained and
+compared via reliability diagrams. The Gaussian model produced better-calibrated
+intervals in both cases: the Student-t penalises outliers less during training,
+causing the learned σ to shrink and under-cover at high confidence levels. This
+confirms the Gaussian likelihood as the pragmatically appropriate choice.
 
 ---
 
