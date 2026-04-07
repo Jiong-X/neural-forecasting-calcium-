@@ -2,10 +2,10 @@
 torch>=2.5.1
 numpy>=1.26.4
 
-# Allowed extras (3)
+# Allowed extras (2)
 matplotlib>=3.9.1       # all plots and visualisations
-einops>=0.8.0           # tensor rearrangement in POCO attention layers
 scipy>=1.15.2           # calibration, statistics, signal processing
+# einops removed — all rearrange/repeat calls replaced with native PyTorch ops
 
 # Optional — only needed to preprocess raw HDF5 files (first run of train.py)
 # NOT required if data/processed/*.npz already exists

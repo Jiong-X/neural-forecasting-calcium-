@@ -12,7 +12,10 @@
 #   - Added ProbabilisticPOCO subclass with Gaussian output head (POCO_prob.py)
 #   - Added multi-session support via session embeddings (POCO_multisession.py)
 #
-# Requires: torch, numpy, einops, xformers (optional)
+# Requires: torch, numpy, xformers (optional)
+# einops dependency removed — all rearrange/repeat calls replaced with
+# equivalent torch operations (unflatten, flatten, transpose, unsqueeze,
+# repeat_interleave).
 
 import torch
 import torch.nn as nn
@@ -22,7 +25,6 @@ import torch.nn.functional as F
 import logging
 
 import torch as _torch  # TensorType replaced with torch.Tensor to avoid torchtyping dependency
-from einops import repeat, rearrange
 
 import warnings
 with warnings.catch_warnings():
@@ -275,9 +277,9 @@ def rotary_default_attention(
     """
 
     # default attention expects shape b h n d
-    q = rearrange(q, "b n (h d) -> b h n d", h=num_heads)
-    k = rearrange(k, "b n (h d) -> b h n d", h=num_heads)
-    v = rearrange(v, "b n (h d) -> b h n d", h=num_heads)
+    q = q.unflatten(-1, (num_heads, -1)).transpose(1, 2)
+    k = k.unflatten(-1, (num_heads, -1)).transpose(1, 2)
+    v = v.unflatten(-1, (num_heads, -1)).transpose(1, 2)
 
     # apply rotary embeddings
     q = apply_rotary_pos_emb(rotary_time_emb_q, q, dim=1)
@@ -287,7 +289,7 @@ def rotary_default_attention(
 
     # attention mask
     if kv_mask is not None:
-        kv_mask = rearrange(kv_mask, "b n -> b () () n") 
+        kv_mask = kv_mask.unsqueeze(1).unsqueeze(2)
 
     # perform attention, by default will use the optimal attention implementation
     out = F.scaled_dot_product_attention(
@@ -298,7 +300,7 @@ def rotary_default_attention(
         out = apply_rotary_pos_emb(-rotary_time_emb_q, out, dim=1)
 
     # return (b, n, (h d), )
-    out = rearrange(out, "b h n d -> b n (h d)")
+    out = out.transpose(1, 2).flatten(2)
     return out
 
 
@@ -320,9 +322,9 @@ def rotary_memory_efficient_attention(
     """
 
     # xformers attention expects shape (1, n, h, d, ) 
-    q = rearrange(q, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
-    k = rearrange(k, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
-    v = rearrange(v, "n (h d) -> n h d", h=num_heads).unsqueeze(0)
+    q = q.unflatten(-1, (num_heads, -1)).unsqueeze(0)
+    k = k.unflatten(-1, (num_heads, -1)).unsqueeze(0)
+    v = v.unflatten(-1, (num_heads, -1)).unsqueeze(0)
 
     q = apply_rotary_pos_emb(rotary_time_emb_q.unsqueeze(0), q)
     k = apply_rotary_pos_emb(rotary_time_emb_kv.unsqueeze(0), k)
@@ -368,7 +370,7 @@ def rotary_memory_efficient_attention(
         out = apply_rotary_pos_emb(-rotary_time_emb_q.unsqueeze(0), out)
 
     # return (n, (h d), ), b = 1 is removed
-    out = rearrange(out, "b n h d -> b n (h d)").squeeze(0)
+    out = out.flatten(2).squeeze(0)
     return out
 
 class RotaryEmbedding(nn.Module):
@@ -412,15 +414,15 @@ class RotaryEmbedding(nn.Module):
             timestamps (torch.Tensor): timestamps tensor.
         """
         freqs = torch.einsum("..., f -> ... f", timestamps, self.inv_freq)
-        freqs = repeat(freqs, "... n -> ... (n r)", r=2)
+        freqs = freqs.repeat_interleave(2, dim=-1)
         return freqs
 
 
 def rotate_half(x):
-    x = rearrange(x, "... (d r) -> ... d r", r=2)
+    x = x.unflatten(-1, (-1, 2))
     x1, x2 = x.unbind(dim=-1)
     x = torch.stack((-x2, x1), dim=-1)
-    return rearrange(x, "... d r -> ... (d r)")
+    return x.flatten(-2)
 
 
 def apply_rotary_pos_emb(freqs, x, dim=2):
@@ -433,9 +435,9 @@ def apply_rotary_pos_emb(freqs, x, dim=2):
     """
     dtype = x.dtype
     if dim == 1:
-        freqs = rearrange(freqs, "n ... -> n () ...")
+        freqs = freqs.unsqueeze(1)
     elif dim == 2:
-        freqs = rearrange(freqs, "n m ... -> n m () ...")
+        freqs = freqs.unsqueeze(2)
     x = (x * freqs.cos().to(dtype)) + (rotate_half(x) * freqs.sin().to(dtype))
     return x
 
