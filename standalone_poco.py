@@ -348,6 +348,31 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
+def _chained_to_padded(x, seqlen):
+    """Convert chained (N_total, *) to padded (B, max_len, *) + mask (B, max_len)."""
+    B = seqlen.shape[0]
+    max_len = int(seqlen.max().item())
+    rest_shape = x.shape[1:]
+    padded = x.new_zeros(B, max_len, *rest_shape)
+    mask = torch.zeros(B, max_len, dtype=torch.bool, device=x.device)
+    offset = 0
+    for i in range(B):
+        sl = int(seqlen[i].item())
+        padded[i, :sl] = x[offset:offset + sl]
+        mask[i, :sl] = True
+        offset += sl
+    return padded, mask
+
+
+def _padded_to_chained(x, seqlen):
+    """Convert padded (B, max_len, *) back to chained (N_total, *)."""
+    parts = []
+    for i in range(seqlen.shape[0]):
+        sl = int(seqlen[i].item())
+        parts.append(x[i, :sl])
+    return torch.cat(parts, dim=0)
+
+
 class PerceiverRotary(nn.Module):
     def __init__(
         self,
@@ -482,6 +507,25 @@ class PerceiverRotary(nn.Module):
             assert latent_seqlen.dim() == 1
             assert output_query_seqlen.dim() == 1
 
+        # Without xformers: convert chained tensors to padded + mask
+        _convert_back = False
+        if chained_input and not self.using_memory_efficient_attn:
+            _convert_back = True
+            _orig_oq_seqlen = output_query_seqlen
+
+            inputs, input_mask = _chained_to_padded(inputs, input_seqlen)
+            latents, _ = _chained_to_padded(latents, latent_seqlen)
+            output_queries, _ = _chained_to_padded(output_queries, output_query_seqlen)
+            input_timestamps, _ = _chained_to_padded(input_timestamps, input_seqlen)
+            latent_timestamps, _ = _chained_to_padded(latent_timestamps, latent_seqlen)
+            output_query_timestamps, _ = _chained_to_padded(
+                output_query_timestamps, output_query_seqlen
+            )
+
+            input_seqlen = None
+            latent_seqlen = None
+            output_query_seqlen = None
+
         # compute timestamp embeddings
         input_timestamp_emb = self.rotary_emb(input_timestamps)
         latent_timestamp_emb = self.rotary_emb(latent_timestamps)
@@ -522,6 +566,9 @@ class PerceiverRotary(nn.Module):
             context_seqlen=latent_seqlen,
         )
         output_queries = output_queries + self.dec_ffn(output_queries)
+
+        if _convert_back:
+            output_queries = _padded_to_chained(output_queries, _orig_oq_seqlen)
 
         return output_queries
 

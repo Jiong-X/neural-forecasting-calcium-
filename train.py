@@ -83,7 +83,7 @@ print(f"Model: Probabilistic POCO  |  Parameters: {n_params:,}")
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, patience=5, factor=0.5, verbose=False
+    optimizer, patience=5, factor=0.5
 )
 
 # ---------------------------------------------------------------------------
