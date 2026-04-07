@@ -7,6 +7,7 @@ matplotlib>=3.9.1       # all plots and visualisations
 einops>=0.8.0           # tensor rearrangement in POCO attention layers
 scipy>=1.15.2           # calibration, statistics, signal processing
 
-# Optional — only needed to run preprocess.py from raw HDF5 files
-# These are NOT required if data/processed/*.npz already exists
-# pip install h5py scikit-learn
+# Optional — only needed to preprocess raw HDF5 files (first run of train.py)
+# NOT required if data/processed/*.npz already exists
+# PCA is implemented via numpy.linalg.svd — scikit-learn is no longer needed
+# pip install h5py

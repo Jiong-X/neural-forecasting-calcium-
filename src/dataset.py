@@ -139,14 +139,16 @@ def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
     """
     Preprocess raw TimeSeries.h5 → processed .npz.
     Pipeline: load CellResp → z-score per neuron → PCA → save top n_pcs PCs.
+
+    PCA is implemented via numpy.linalg.svd — no scikit-learn required.
+    Only extra dependency: h5py (pip install h5py).
     """
     try:
         import h5py
-        from sklearn.decomposition import PCA
     except ImportError:
         raise ImportError(
-            "h5py and scikit-learn are required to preprocess raw data.\n"
-            "Install them with:  pip install h5py scikit-learn"
+            "h5py is required to preprocess raw HDF5 data.\n"
+            "Install with:  pip install h5py"
         )
 
     print(f"Preprocessing {raw_path} ...")
@@ -160,10 +162,15 @@ def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
     std  = data.std(axis=1,  keepdims=True) + 1e-6
     M    = (data - mu) / std                  # (N_neurons, T)
 
-    # PCA — reduce to top n_pcs components
+    # PCA via truncated SVD (numpy only — no scikit-learn needed)
+    # M.T is (T, N_neurons); we want top n_pcs principal components
     print(f"  Running PCA (n_components={n_pcs}) on {M.shape} matrix ...")
-    pca    = PCA(n_components=n_pcs)
-    scores = pca.fit_transform(M.T)           # (T, n_pcs)
+    X   = M.T                                 # (T, N_neurons)
+    X   = X - X.mean(axis=0, keepdims=True)   # centre columns
+    # economy SVD: U (T,k), s (k,), Vt (k, N_neurons)
+    U, s, Vt = np.linalg.svd(X, full_matrices=False)
+    # scores = U * s gives principal component projections (T, k)
+    scores = U[:, :n_pcs] * s[:n_pcs]        # (T, n_pcs)
     PC     = scores.T                         # (n_pcs, T)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)

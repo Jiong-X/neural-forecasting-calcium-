@@ -78,11 +78,12 @@ pip install -r requirements.txt
 
 Core dependencies: `torch`, `numpy`, `matplotlib`, `einops`, `scipy`
 
-> **Optional — only needed to run `preprocess.py` from raw HDF5 files:**
+> **Optional — only needed to preprocess raw HDF5 files (first run of `train.py`):**
 > ```bash
-> pip install h5py scikit-learn
+> pip install h5py
 > ```
-> Skip this if you already have `data/processed/*.npz` files.
+> PCA is implemented via `numpy.linalg.svd` — scikit-learn is not required.
+> Skip entirely if `data/processed/*.npz` already exists.
 
 > **Optional — speeds up attention on GPU:**
 > ```bash
