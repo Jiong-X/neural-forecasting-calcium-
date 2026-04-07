@@ -33,7 +33,7 @@ def gaussian_nll_loss(mean: torch.Tensor,
         scalar loss
     """
     var  = logvar.exp().clamp(min=1e-6)
-    loss = 0.5 * (logvar + (target - mean).pow(2) / var)
+    loss = 0.5 * (logvar + (target - mean).pow(2) / var) + 0.5 * torch.log(torch.tensor(2*torch.pi))
     return loss.mean()
 
 
