@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from standalone_poco import POCO, NeuralPredictionConfig
+from poco_src.standalone_poco import POCO, NeuralPredictionConfig
 
 
 # ---------------------------------------------------------------------------

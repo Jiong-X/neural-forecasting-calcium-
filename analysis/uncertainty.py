@@ -24,9 +24,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from POCO_prob import ProbabilisticPOCO, CalciumDataset
-from standalone_poco import NeuralPredictionConfig
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss
+from poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
 # MC Dropout helper

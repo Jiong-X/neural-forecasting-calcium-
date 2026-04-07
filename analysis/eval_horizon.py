@@ -24,8 +24,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-from standalone_poco import POCO, NeuralPredictionConfig
-from POCO_prob import ProbabilisticPOCO, nll_loss
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from poco_src.standalone_poco import POCO, NeuralPredictionConfig
+from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss
 from POCO import CalciumDataset, collate_poco
 
 os.makedirs("results/plots", exist_ok=True)

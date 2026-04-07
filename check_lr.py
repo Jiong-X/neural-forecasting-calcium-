@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import sys
 sys.path.insert(0, ".")
-from RNN import CalciumRNN, CalciumDataset, train, evaluate
+from baseline_models.RNN import CalciumRNN, CalciumDataset, train, evaluate
 
 data = np.load("data/processed/0.npz")
 raw  = data["PC"].astype(np.float32)

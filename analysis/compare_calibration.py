@@ -31,10 +31,11 @@ import scipy.stats
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from standalone_poco import NeuralPredictionConfig
-from POCO_prob    import ProbabilisticPOCO
-from POCO_studentt import StudentTPOCO
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from poco_src.standalone_poco import NeuralPredictionConfig
+from poco_src.POCO_prob    import ProbabilisticPOCO
+from poco_src.POCO_studentt import StudentTPOCO
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DATA_PATH   = "data/processed/0.npz"

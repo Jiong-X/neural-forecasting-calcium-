@@ -7,6 +7,7 @@ Produces:
   3. Sharpness (mean sigma) vs horizon
 """
 
+import sys
 import os
 import torch
 import numpy as np
@@ -16,8 +17,10 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 import scipy.stats
 
-from POCO_prob import ProbabilisticPOCO, CalciumDataset
-from standalone_poco import NeuralPredictionConfig
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
+from poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
 # Config — must match POCO_prob.py training settings
