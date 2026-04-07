@@ -25,7 +25,7 @@ BATCH_SIZE  = 32
 LOAD_PATH   = "models/saved/model.pt"
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-_, test_dataset = get_dataset(seq_length=SEQ_LENGTH, pred_length=PRED_LENGTH, test=True)
+_, test_dataset = get_dataset(seq_length=SEQ_LENGTH, pred_length=PRED_LENGTH)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # ── Load model ────────────────────────────────────────────────────────────────
