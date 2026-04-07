@@ -240,7 +240,7 @@ def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
     print(f"  Saved to {out_path}")
 
 
-def _load_traces() -> np.ndarray:
+def _load_traces(chunked:bool=True) -> np.ndarray:
     """
     Return (T, N_PCS) float32 trace array.
     Auto-downloads and preprocesses if needed.
@@ -255,12 +255,18 @@ def _load_traces() -> np.ndarray:
 
     # 2. Raw HDF5 present — preprocess it
     if os.path.exists(RAW_PATH):
-        _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+        if chunked:
+            _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+        else:
+            _preprocess_raw
         return _load_traces()
 
     # 3. Nothing local — download then preprocess
     _download_raw()
-    _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+    if chunked:
+        _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+    else:
+        _preprocess_raw(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
     return _load_traces()
 
 
