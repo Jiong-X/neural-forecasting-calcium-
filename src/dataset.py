@@ -134,6 +134,63 @@ def _download_raw():
     os.remove(ZIP_PATH)
     print("  ZIP removed.")
 
+def _preprocess_raw_chunked(raw_path: str, out_path: str, n_pcs: int = N_PCS, chunk_size: int = 4096):
+    """
+    Memory-efficient preprocessing for large HDF5 datasets.
+    Computes PCA from XX^T in chunks over neurons.
+    """
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError(
+            "h5py is required to preprocess raw HDF5 data.\n"
+            "Install with: pip install h5py"
+        )
+
+    print(f"Preprocessing {raw_path} ...")
+    with h5py.File(raw_path, "r") as f:
+        dset = f["CellResp"]   # shape (T, N)
+        T, N = dset.shape
+        n_pcs = min(n_pcs, T)
+
+        print(f"  Dataset shape: T={T}, N={N}")
+        print(f"  Building temporal covariance in chunks of {chunk_size} neurons ...")
+
+        C = np.zeros((T, T), dtype=np.float64)
+
+        for start in range(0, N, chunk_size):
+            end = min(start + chunk_size, N)
+            X_chunk = dset[:, start:end].astype(np.float32)   # (T, chunk)
+
+            # z-score each neuron over time
+            mu = X_chunk.mean(axis=0, keepdims=True)
+            std = X_chunk.std(axis=0, keepdims=True) + 1e-6
+            X_chunk = (X_chunk - mu) / std
+
+            # centre columns
+            X_chunk = X_chunk - X_chunk.mean(axis=0, keepdims=True)
+
+            # accumulate XX^T
+            C += X_chunk @ X_chunk.T
+
+            print(f"    processed neurons {start}:{end}")
+
+    C /= max(N - 1, 1)
+
+    print("  Eigendecomposing temporal covariance ...")
+    evals, evecs = np.linalg.eigh(C)
+
+    idx = np.argsort(evals)[::-1]
+    evals = evals[idx][:n_pcs]
+    evecs = evecs[:, idx][:, :n_pcs]
+
+    scores = evecs * np.sqrt(np.clip(evals, 0, None))
+    PC = scores.T.astype(np.float32)   # (n_pcs, T)
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    np.savez_compressed(out_path, PC=PC)
+
+    print(f"Saved processed PCs to {out_path} with shape {PC.shape}")
 
 def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
     """
@@ -168,6 +225,8 @@ def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
     X   = M.T                                 # (T, N_neurons)
     X   = X - X.mean(axis=0, keepdims=True)   # centre columns
     # economy SVD: U (T,k), s (k,), Vt (k, N_neurons)
+    print(f"shape of x is: {X.shape}") 
+
     U, s, Vt = np.linalg.svd(X, full_matrices=False)
     # scores = U * s gives principal component projections (T, k)
     scores = U[:, :n_pcs] * s[:n_pcs]        # (T, n_pcs)
@@ -196,12 +255,12 @@ def _load_traces() -> np.ndarray:
 
     # 2. Raw HDF5 present — preprocess it
     if os.path.exists(RAW_PATH):
-        _preprocess_raw(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+        _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
         return _load_traces()
 
     # 3. Nothing local — download then preprocess
     _download_raw()
-    _preprocess_raw(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+    _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
     return _load_traces()
 
 
@@ -234,7 +293,7 @@ def get_dataset(seq_length: int = 64,
     context_len = seq_length - pred_length
 
     traces = _load_traces()
-    T      = traces.shape[0]
+    T = traces.shape[0]
     print(f"Loaded traces: {T} timesteps x {traces.shape[1]} PCs")
 
     train_end = int(T * train_frac)
