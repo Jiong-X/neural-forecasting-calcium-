@@ -52,35 +52,45 @@ def compute_metrics(model, loader, device, n_samples=100):
     return {"MAE": mae, "RMSE": rmse, "Coverage90": coverage, "CRPS": crps}
 
 
-def plot_predictions(model, loader, device, save_dir="results/figures", n_examples=4):
-    """Plot predicted mean ± 2 std against ground truth for n_examples."""
+def plot_predictions(model, loader, device, save_dir="results/figures", n_pcs=4):
+    """
+    Plot predicted mean ± 2σ vs ground truth for the first n_pcs principal
+    components (one panel per PC, using the first batch example).
+    """
     os.makedirs(save_dir, exist_ok=True)
     model.eval()
     x_batch, y_batch = next(iter(loader))
     x_batch, y_batch = x_batch.to(device), y_batch.to(device)
 
     with torch.no_grad():
-        mean, logvar = model(x_batch)
+        mean, logvar = model(x_batch)          # (B, pred_len, N)
     std  = (0.5 * logvar).exp().cpu()
     mean = mean.cpu()
     y    = y_batch.cpu()
     x    = x_batch.cpu()
 
-    fig, axes = plt.subplots(n_examples, 1, figsize=(10, 3 * n_examples))
-    for i, ax in enumerate(axes):
-        t_ctx  = range(x.shape[1])
-        t_pred = range(x.shape[1], x.shape[1] + y.shape[1])
+    # use example index 0, iterate over PCs
+    t_ctx  = range(x.shape[1])
+    t_pred = range(x.shape[1], x.shape[1] + y.shape[1])
 
-        ax.plot(t_ctx,  x[i],      color="steelblue", label="Context")
-        ax.plot(t_pred, y[i],      color="black",     label="Ground truth", linestyle="--")
-        ax.plot(t_pred, mean[i],   color="tomato",    label="Predicted mean")
+    fig, axes = plt.subplots(n_pcs, 1, figsize=(10, 3 * n_pcs), sharex=True)
+    for pc, ax in enumerate(axes):
+        ax.plot(t_ctx,  x[0, :, pc].numpy(),    color="steelblue", lw=1.2, label="Context")
+        ax.plot(t_pred, y[0, :, pc].numpy(),    color="black",     lw=1.5,
+                linestyle="--", label="Ground truth")
+        ax.plot(t_pred, mean[0, :, pc].numpy(), color="tomato",    lw=1.5,
+                label="Predicted mean")
         ax.fill_between(t_pred,
-                        mean[i] - 2 * std[i],
-                        mean[i] + 2 * std[i],
-                        alpha=0.3, color="tomato",   label="95% interval")
-        ax.legend(fontsize=8)
-        ax.set_title(f"Example {i+1}")
+                        (mean[0, :, pc] - 2 * std[0, :, pc]).numpy(),
+                        (mean[0, :, pc] + 2 * std[0, :, pc]).numpy(),
+                        alpha=0.3, color="tomato", label="±2σ (95%)")
+        ax.axvline(x=x.shape[1] - 0.5, color="grey", ls=":", lw=1.0, alpha=0.6)
+        ax.set_ylabel(f"PC {pc}  (z-score)", fontsize=9)
+        ax.tick_params(labelsize=8)
+        if pc == 0:
+            ax.legend(fontsize=8, ncol=2)
 
+    axes[-1].set_xlabel("Time (frames)", fontsize=10)
     plt.tight_layout()
-    plt.savefig(os.path.join(save_dir, "predictions.png"), dpi=150)
+    plt.savefig(os.path.join(save_dir, "predictions.png"), dpi=150, bbox_inches="tight")
     plt.close()

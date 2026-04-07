@@ -188,9 +188,7 @@ def nll_loss(dists: list[Normal], targets: list[torch.Tensor]) -> torch.Tensor:
 class CalciumDataset(Dataset):
     def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
         traces = traces.astype(np.float32)
-        mu  = traces.mean(0, keepdims=True)
-        sd  = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
+        # expects already z-scored traces — normalisation done before splitting
 
         seq_len = context_len + pred_len
         X, Y = [], []
@@ -288,9 +286,14 @@ if __name__ == "__main__":
     train_end = int(T * TRAIN_FRAC)
     val_end   = int(T * (TRAIN_FRAC + VAL_FRAC))
 
-    train_ds = CalciumDataset(raw[:train_end],          CONTEXT, PRED_LEN)
-    val_ds   = CalciumDataset(raw[train_end:val_end],   CONTEXT, PRED_LEN)
-    test_ds  = CalciumDataset(raw[val_end:],            CONTEXT, PRED_LEN)
+    # z-score each neuron over the full recording before splitting
+    mu  = raw.mean(0, keepdims=True)
+    sd  = raw.std(0,  keepdims=True) + 1e-8
+    raw = (raw - mu) / sd
+
+    train_ds = CalciumDataset(raw[:train_end],        CONTEXT, PRED_LEN)
+    val_ds   = CalciumDataset(raw[train_end:val_end], CONTEXT, PRED_LEN)
+    test_ds  = CalciumDataset(raw[val_end:],          CONTEXT, PRED_LEN)
     print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}  |  Test windows: {len(test_ds)}")
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)

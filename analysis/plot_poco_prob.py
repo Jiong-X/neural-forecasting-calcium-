@@ -1,7 +1,7 @@
 """
-Overlay comparison: deterministic POCO vs probabilistic POCO.
+Probabilistic POCO visualisation.
 
-Figure 1: Det. POCO prediction vs Prob. POCO mean + ±1σ / ±2σ interval
+Figure 1: Prob. POCO mean prediction + ±1σ / ±2σ interval
           (4 PC panels, single forward pass)
 Figure 2: Uncertainty decomposition — aleatoric / epistemic / total
           (MC Dropout, T=50 passes, same 4 panels)
@@ -21,18 +21,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
-from poco_src.standalone_poco import NeuralPredictionConfig, POCO
+from poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
 # Config — must match training settings in POCO.py and POCO_prob.py
 # ---------------------------------------------------------------------------
 DATA_PATH       = "data/processed/0.npz"
-DET_MODEL_PATH  = "models/best_calcium_poco.pt"
-PROB_MODEL_PATH = "models/best_poco_prob.pt"
+PROB_MODEL_PATH = "models/saved/model.pt"
 OUT_DIR         = "results/plots"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -69,7 +68,13 @@ T, N   = traces.shape
 
 split    = int(T * TRAIN_FRAC)                      # end of train
 val_end  = int(T * (TRAIN_FRAC + VAL_FRAC))         # end of val
-val_ds   = CalciumDataset(traces[split:val_end], context_len=CONTEXT_LEN, pred_len=PRED_LEN)
+
+# z-score each neuron over the full recording before splitting
+mu     = traces.mean(0, keepdims=True)
+sd     = traces.std(0,  keepdims=True) + 1e-8
+traces = (traces - mu) / sd
+
+val_ds     = CalciumDataset(traces[split:val_end], context_len=CONTEXT_LEN, pred_len=PRED_LEN)
 val_loader = DataLoader(val_ds, batch_size=16, shuffle=False, num_workers=0)
 
 X, Y   = next(iter(val_loader))
@@ -100,24 +105,16 @@ def build_config(hidden_dim=HIDDEN_DIM, cond_dim=COND_DIM):
     return cfg
 
 # ---------------------------------------------------------------------------
-# Load deterministic POCO
-# ---------------------------------------------------------------------------
-det_model = POCO(build_config(HIDDEN_DIM, COND_DIM), [[N]]).to(device)
-det_model.load_state_dict(
-    torch.load(DET_MODEL_PATH, map_location=device, weights_only=True))
-det_model.eval()
-print("Deterministic POCO loaded.")
-
-with torch.no_grad():
-    det_preds = det_model(x_list)           # list of [(pred_len, B, N)]
-mu_det = det_preds[0].cpu().numpy()         # (pred_len, B, N)
-
-# ---------------------------------------------------------------------------
 # Load probabilistic POCO
 # ---------------------------------------------------------------------------
 prob_model = ProbabilisticPOCO(build_config(HIDDEN_DIM, COND_DIM), [[N]]).to(device)
-prob_model.load_state_dict(
-    torch.load(PROB_MODEL_PATH, map_location=device, weights_only=True))
+
+# Checkpoint may come from ProbabilisticForecaster (train.py → self.poco = ...)
+# which prefixes all keys with "poco.".  Strip that prefix if present.
+_ckpt = torch.load(PROB_MODEL_PATH, map_location=device, weights_only=True)
+if all(k.startswith("poco.") for k in _ckpt):
+    _ckpt = {k[len("poco."):]: v for k, v in _ckpt.items()}
+prob_model.load_state_dict(_ckpt)
 prob_model.eval()
 print("Probabilistic POCO loaded.")
 
@@ -157,17 +154,16 @@ print(f"Epistemic (PC0 mean): {epistemic[:, EXAMPLE, 0].mean():.4f}")
 print(f"Total     (PC0 mean): {total[:, EXAMPLE, 0].mean():.4f}")
 
 # ---------------------------------------------------------------------------
-# Figure 1 — Det POCO vs Prob POCO overlay
+# Figure 1 — Prob POCO mean prediction + uncertainty intervals
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(N_PANELS, 1, figsize=(12, 3 * N_PANELS), sharex=True)
-fig.suptitle("POCO Deterministic vs Probabilistic — Prediction Comparison\n"
+fig.suptitle("Probabilistic POCO — Prediction with Uncertainty Intervals\n"
              "Shaded region = ±1σ / ±2σ from probabilistic head",
              fontsize=12, fontweight="bold")
 
 for i, ax in enumerate(axes):
     ctx  = X_np[:, EXAMPLE, i]
     gt   = Y_np[:, EXAMPLE, i]
-    m_d  = mu_det[:, EXAMPLE, i]
     m_p  = mu_prob[:, EXAMPLE, i]
     sg   = sigma_prob[:, EXAMPLE, i]
 
@@ -175,9 +171,6 @@ for i, ax in enumerate(axes):
     ax.plot(t_context, ctx, color="#4a90d9", lw=1.2, label="Context (ground truth)")
     # ground truth future
     ax.plot(t_pred, gt, color="#2ecc71", lw=2.0, label="Ground truth (future)", zorder=6)
-    # deterministic POCO
-    ax.plot(t_pred, m_d, color="#e74c3c", lw=1.8, ls="-",
-            label="POCO det.", zorder=7)
     # probabilistic POCO mean + intervals
     ax.plot(t_pred, m_p, color="#8e44ad", lw=1.8, ls="--",
             label="POCO prob. μ", zorder=7)
@@ -194,7 +187,7 @@ for i, ax in enumerate(axes):
 
 axes[-1].set_xlabel("Time  (frames,  1 frame ≈ 0.5 s)", fontsize=10)
 plt.tight_layout(rect=[0, 0, 1, 0.95])
-out1 = os.path.join(OUT_DIR, "poco_det_vs_prob.png")
+out1 = os.path.join(OUT_DIR, "poco_prob_prediction.png")
 plt.savefig(out1, dpi=150, bbox_inches="tight")
 print(f"Saved: {out1}")
 plt.close()

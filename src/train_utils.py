@@ -15,6 +15,7 @@ Reference:
   NeurIPS 2017.
 """
 
+import math
 import torch
 
 
@@ -24,16 +25,22 @@ def gaussian_nll_loss(mean: torch.Tensor,
     """
     Gaussian NLL averaged over all elements.
 
+    Derives sigma consistently from logvar before computing both the
+    log-det and squared-error terms, so clamping is applied uniformly.
+
     Args:
         mean   : (B, pred_len, N)  predicted mean
-        logvar : (B, pred_len, N)  predicted log-variance
+        logvar : (B, pred_len, N)  predicted log-variance  (= 2 * log σ)
         target : (B, pred_len, N)  ground truth
 
     Returns:
-        scalar loss
+        scalar NLL (nats)
     """
-    var  = logvar.exp().clamp(min=1e-6)
-    loss = 0.5 * (logvar + (target - mean).pow(2) / var) + 0.5 * torch.log(torch.tensor(2*torch.pi))
+    # clamp sigma — avoids both underflow and overconfident collapse
+    sigma = (0.5 * logvar).exp().clamp(min=1e-4)
+    loss  = (sigma.log()
+             + 0.5 * ((target - mean) / sigma).pow(2)
+             + 0.5 * math.log(2 * math.pi))
     return loss.mean()
 
 

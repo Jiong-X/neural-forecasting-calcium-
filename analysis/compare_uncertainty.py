@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
 from poco_src.standalone_poco import NeuralPredictionConfig
@@ -30,6 +30,7 @@ N_PCS       = 128
 SEQ_LEN     = 64
 PRED_LEN    = 16
 CONTEXT_LEN = SEQ_LEN - PRED_LEN
+TRAIN_FRAC  = 0.6
 VAL_FRAC    = 0.2
 MC_SAMPLES  = 100
 EXAMPLE     = 0
@@ -51,9 +52,15 @@ raw    = data["PC"].astype(np.float32)
 if raw.shape[0] < raw.shape[1]:
     raw = raw.T
 traces = raw[:, :N_PCS]
-T, N   = traces.shape
-split  = int(T * (1 - VAL_FRAC))
-val_ds = CalciumDataset(traces[split:], context_len=CONTEXT_LEN, pred_len=PRED_LEN)
+T, N    = traces.shape
+
+# z-score each neuron over the full recording before splitting
+mu      = traces.mean(0, keepdims=True)
+sd      = traces.std(0,  keepdims=True) + 1e-8
+traces  = (traces - mu) / sd
+
+val_end = int(T * (TRAIN_FRAC + VAL_FRAC))
+val_ds  = CalciumDataset(traces[val_end:], context_len=CONTEXT_LEN, pred_len=PRED_LEN)
 loader = DataLoader(val_ds, batch_size=16, shuffle=False, num_workers=0)
 
 X, Y   = next(iter(loader))
@@ -104,7 +111,10 @@ for label, path in MODELS.items():
             if isinstance(mod, nn.Dropout) and abs(mod.p - 0.2) < 1e-6:
                 mod.p = 0.3
 
-    model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
+    _ckpt = torch.load(path, map_location=device, weights_only=True)
+    if all(k.startswith("poco.") for k in _ckpt):
+        _ckpt = {k[len("poco."):]: v for k, v in _ckpt.items()}
+    model.load_state_dict(_ckpt)
     model.eval()
     model.apply(enable_dropout)
 

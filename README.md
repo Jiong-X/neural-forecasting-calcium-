@@ -27,41 +27,28 @@ COMP0197-project/
 ├── poco_src/                         # POCO model configs and utilities
 │
 ├── standalone_poco.py                # POCO backbone — Perceiver-IO + rotary encodings
-├── preprocess.py                     # Step 1 — raw HDF5 → processed .npz
+├── preprocess.py                     # Raw HDF5 → processed .npz (multi-session)
 ├── dataloader.py                     # Source-agnostic data loader (npz / h5 / npy / csv)
 │
 │   ── Model training scripts ────────────────────────────────────────────────────────
-├── AR.py                             # Autoregressive (closed-form least squares)
-├── RNN.py                            # Vanilla RNN (nn.RNN, tanh activation)
-├── LSTM.py                           # LSTM (nn.LSTM)
-├── NLinear.py                        # NLinear (normalised linear — POCO paper baseline)
-├── DLinear.py                        # DLinear (trend + seasonal decomposition)
-├── TSMixer.py                        # TSMixer (MLP token + channel mixing)
-├── TexFilter.py                      # TexFilter (temporal exponential filter — POCO baseline)
-├── POCO.py                           # POCO deterministic — single session
-├── POCO_prob.py                      # POCO probabilistic — Gaussian N(μ, σ²)
-├── POCO_prob_highdrop.py             # POCO probabilistic — higher dropout (lin=0.6)
-├── POCO_studentt.py                  # POCO probabilistic — Student-t output head
-├── POCO_multisession.py              # POCO deterministic — cross-animal (subjects 0,1,2 → 3)
-├── POCO_prob_multisession.py         # POCO probabilistic — cross-animal
+├── POCO.py                           # POCO deterministic — point forecast
+├── POCO_prob.py                      # POCO probabilistic — Gaussian N(μ, σ²) output head
 │
 │   ── Analysis & visualisation ────────────────────────────────────────────────────
 ├── uncertainty.py                    # MC-Dropout: aleatoric + epistemic decomposition
-├── compare_uncertainty.py            # Normal vs high-dropout uncertainty comparison
 ├── eval_horizon.py                   # MAE / NLL as a function of prediction horizon
 ├── calibration.py                    # Reliability diagram — empirical vs nominal coverage
-├── compare_calibration.py            # Calibration comparison: POCO_prob vs POCO_studentt
 ├── gaussian_diagnostics.py           # Shapiro-Wilk + Q-Q plots per PC
 ├── normality_pooled.py               # Pooled normality test (skewness, kurtosis, D'Agostino)
 ├── bimodality_check.py               # Bimodality coefficient + per-neuron KDE
 ├── estimate_df.py                    # Estimate Student-t ν from residuals (kurtosis + MLE)
 ├── plot_poco_prob.py                 # Prediction intervals and uncertainty bands
-├── plot_comparison.py                # MAE / MSE bar charts (NLinear, TSMixer, POCO det/prob)
+├── plot_comparison.py                # MAE bar chart: POCO det vs POCO prob
 │
 ├── train_all.sh                      # Train all models sequentially with live logging
 ├── requirements.txt
 ├── .gitignore
-└── README.md
+└── .md
 ```
 
 ---
@@ -220,25 +207,8 @@ tail -n 1 results/logs/*.log            # last line from every model
 #### Individual models
 
 ```bash
-# Baselines
-python AR.py
-python RNN.py
-python LSTM.py
-
-# Linear models (POCO paper baselines)
-python NLinear.py
-python DLinear.py
-python TSMixer.py
-python TexFilter.py
-
-# POCO — single session (Subject 0, 3:1:1 temporal split)
-python POCO.py
-python POCO_prob.py
-python POCO_prob_highdrop.py
-
-# POCO — multi-session (Subjects 0,1,2 train → Subject 3 held-out)
-python POCO_multisession.py
-python POCO_prob_multisession.py
+python POCO.py        # deterministic POCO
+python POCO_prob.py   # probabilistic POCO (Gaussian output head)
 ```
 
 Checkpoints are saved to `models/` and loss curves to `results/`.
@@ -246,9 +216,8 @@ Checkpoints are saved to `models/` and loss curves to `results/`.
 ### Step 2 — Analysis
 
 ```bash
-# Uncertainty decomposition (requires POCO_prob checkpoint)
+# Uncertainty decomposition (MC Dropout — requires POCO_prob checkpoint)
 python uncertainty.py
-python compare_uncertainty.py
 
 # Prediction accuracy vs forecast horizon
 python eval_horizon.py
@@ -257,14 +226,10 @@ python eval_horizon.py
 python calibration.py
 
 # Gaussian likelihood validation
-python normality_pooled.py        # pooled skewness, kurtosis, D'Agostino test + Q-Q
-python gaussian_diagnostics.py    # per-PC Shapiro-Wilk + Q-Q plots
-python bimodality_check.py        # bimodality coefficient + KDE per neuron
-
-# Student-t alternative (empirically motivated by excess kurtosis)
-python estimate_df.py             # estimate best-fit ν via kurtosis formula and MLE
-python POCO_studentt.py --df 7    # train Student-t model with ν=7
-python compare_calibration.py     # reliability diagram: POCO_prob vs POCO_studentt
+python normality_pooled.py     # pooled skewness, kurtosis, D'Agostino test + Q-Q
+python gaussian_diagnostics.py # per-PC Shapiro-Wilk + Q-Q plots
+python bimodality_check.py     # bimodality coefficient + KDE per neuron
+python estimate_df.py          # estimate Student-t ν from residuals (kurtosis + MLE)
 ```
 
 ### Step 3 — Visualise
@@ -396,30 +361,23 @@ Linear and POCO models predict all P steps in a single forward pass.
 
 ## Results
 
-Models trained on Subject 0 (single-session) or Subjects 0–2 (multi-session).
-Context C=48, horizon P=16, top-128 PCs.
+Models trained on Subject 0, context C=48, horizon P=16, top-128 PCs,
+3:1:1 temporal train/val/test split.
 
-| Model                  | Val MAE | Val MSE | Validation type               |
-|------------------------|---------|---------|-------------------------------|
-| Vanilla RNN            | 0.8042  | 1.0175  | Temporal (80/20)              |
-| LSTM                   | 0.7965  | 0.9980  | Temporal (80/20)              |
-| NLinear                | 0.6192  | 0.7179  | Temporal (80/20)              |
-| DLinear                | 0.5732  | 0.6089  | Temporal (80/20)              |
-| TSMixer                | 0.5802  | 0.5998  | Temporal (80/20)              |
-| POCO (det.)            | 0.5242  | 0.5023  | Temporal (80/20)              |
-| POCO (prob.)           | 0.5276  | —       | Temporal (80/20)              |
-| POCO (prob. hi-drop)   | 0.5229  | —       | Temporal (80/20)              |
-| POCO multi (det.)      | 0.5790  | 0.5823  | Cross-animal (Subject 3)      |
-| POCO multi (prob.)     | 0.5766  | —       | Cross-animal (Subject 3)      |
+| Model         | Val MAE | Val MSE | Notes                          |
+|---------------|---------|---------|--------------------------------|
+| POCO (det.)   | 0.5242  | 0.5023  | Point forecast                 |
+| POCO (prob.)  | 0.5276  | —       | Gaussian NLL loss; MSE not comparable |
 
-MAE in z-score units. `—` = trained with NLL loss; MSE not directly comparable.
+MAE in z-score units.
 
-**Uncertainty decomposition** (MC Dropout, T=50 passes, POCO prob):
+**Uncertainty decomposition** (MC Dropout, T=50 passes, POCO_prob):
 
-| Model             | Aleatoric | Epistemic | Epistemic ratio |
-|-------------------|-----------|-----------|-----------------|
-| POCO prob         | 0.3597    | 0.0268    | 7.5%            |
-| POCO prob hi-drop | 0.2602    | 0.0339    | 13.0%           |
+| Component  | Value  | Interpretation                        |
+|------------|--------|---------------------------------------|
+| Aleatoric  | 0.3597 | Irreducible data noise (~92.5%)       |
+| Epistemic  | 0.0268 | Model uncertainty (~7.5%)             |
+| Total      | 0.3597 | Dominated by aleatoric uncertainty    |
 
 ---
 

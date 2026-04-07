@@ -24,11 +24,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poco_src.standalone_poco import POCO, NeuralPredictionConfig
-from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss
-from POCO import CalciumDataset, collate_poco
+from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss, CalciumDataset
 
 os.makedirs("results/plots", exist_ok=True)
 
@@ -43,6 +42,7 @@ N_PCS        = 128
 SEQ_LEN      = 64       # context (48) + horizon (16)
 PRED_LEN     = 16
 BATCH_SIZE   = 64
+TRAIN_FRAC   = 0.6
 VAL_FRAC     = 0.2
 
 COMPRESSION  = 16
@@ -63,13 +63,17 @@ raw  = data["PC"].astype(np.float32)
 if raw.shape[0] < raw.shape[1]:
     raw = raw.T
 traces = raw[:, :N_PCS]
-T, N   = traces.shape
+T, N    = traces.shape
 
-split  = int(T * (1 - VAL_FRAC))
-val_ds = CalciumDataset(traces[split:], seq_len=SEQ_LEN, pred_len=PRED_LEN)
-val_loader = DataLoader(val_ds, BATCH_SIZE, shuffle=False,
-                        collate_fn=collate_poco, num_workers=0)
-print(f"Val windows: {len(val_ds)}")
+# z-score each neuron over the full recording before splitting
+mu      = traces.mean(0, keepdims=True)
+sd      = traces.std(0,  keepdims=True) + 1e-8
+traces  = (traces - mu) / sd
+
+val_end    = int(T * (TRAIN_FRAC + VAL_FRAC))
+val_ds     = CalciumDataset(traces[val_end:], context_len=SEQ_LEN - PRED_LEN, pred_len=PRED_LEN)
+val_loader = DataLoader(val_ds, BATCH_SIZE, shuffle=False, num_workers=0)
+print(f"Test windows: {len(val_ds)}")
 
 # ---------------------------------------------------------------------------
 # Build configs — must match each training script exactly
@@ -110,14 +114,18 @@ def prob_config():
 # Load models
 # ---------------------------------------------------------------------------
 det_model = POCO(det_config(), [[N]]).to(device)
-det_model.load_state_dict(
-    torch.load(DET_MODEL_PATH, map_location=device, weights_only=True))
+_ckpt_det = torch.load(DET_MODEL_PATH, map_location=device, weights_only=True)
+if all(k.startswith("poco.") for k in _ckpt_det):
+    _ckpt_det = {k[len("poco."):]: v for k, v in _ckpt_det.items()}
+det_model.load_state_dict(_ckpt_det)
 det_model.eval()
 print("Deterministic POCO loaded.")
 
 prob_model = ProbabilisticPOCO(prob_config(), [[N]]).to(device)
-prob_model.load_state_dict(
-    torch.load(PROB_MODEL_PATH, map_location=device, weights_only=True))
+_ckpt_prob = torch.load(PROB_MODEL_PATH, map_location=device, weights_only=True)
+if all(k.startswith("poco.") for k in _ckpt_prob):
+    _ckpt_prob = {k[len("poco."):]: v for k, v in _ckpt_prob.items()}
+prob_model.load_state_dict(_ckpt_prob)
 prob_model.eval()
 print("Probabilistic POCO loaded.")
 
@@ -130,19 +138,21 @@ prob_errors = np.zeros(PRED_LEN)
 n_total     = 0   # total windows * neurons contribution denominator
 
 with torch.no_grad():
-    for x_list, Y in val_loader:
-        x_list = [x.to(device) for x in x_list]
-        Y      = Y.to(device)                   # (pred_len, B, N)
+    for X, Y in val_loader:
+        X      = X.to(device)                    # (B, context_len, N)
+        Y      = Y.to(device)                    # (B, pred_len, N)
+        x_list = [X.permute(1, 0, 2)]           # (context_len, B, N)
+        y_poco = Y.permute(1, 0, 2)             # (pred_len, B, N)
 
         # Deterministic
         preds = det_model(x_list)[0]             # (pred_len, B, N)
-        ae    = (preds - Y).abs()                # (pred_len, B, N)
-        det_errors  += ae.mean(dim=(1, 2)).cpu().numpy()   # mean over B, N at each step
+        ae    = (preds - y_poco).abs()
+        det_errors  += ae.mean(dim=(1, 2)).cpu().numpy()
 
         # Probabilistic (use mean prediction for MAE)
         dist  = prob_model(x_list)[0]
-        mu    = dist.mean                        # (pred_len, B, N)
-        ae_p  = (mu - Y).abs()
+        mu_p  = dist.mean                        # (pred_len, B, N)
+        ae_p  = (mu_p - y_poco).abs()
         prob_errors += ae_p.mean(dim=(1, 2)).cpu().numpy()
 
         n_total += 1   # number of batches
@@ -166,11 +176,12 @@ print("Saved results/horizon_mae.npz")
 copy_errors = np.zeros(PRED_LEN)
 n_copy = 0
 with torch.no_grad():
-    for x_list, Y in val_loader:
-        x       = x_list[0]                     # (context_len, B, N)
-        last    = x[-1:].expand(PRED_LEN, -1, -1).to(device)  # repeat last frame
-        Y       = Y.to(device)
-        ae      = (last - Y).abs()
+    for X, Y in val_loader:
+        X       = X.to(device)                  # (B, context_len, N)
+        Y       = Y.to(device)                  # (B, pred_len, N)
+        y_poco  = Y.permute(1, 0, 2)           # (pred_len, B, N)
+        last    = X[:, -1:, :].permute(1, 0, 2).expand(PRED_LEN, -1, -1)
+        ae      = (last - y_poco).abs()
         copy_errors += ae.mean(dim=(1, 2)).cpu().numpy()
         n_copy  += 1
 
@@ -180,11 +191,12 @@ copy_mae_per_step = copy_errors / n_copy
 mean_errors = np.zeros(PRED_LEN)
 n_mean = 0
 with torch.no_grad():
-    for x_list, Y in val_loader:
-        x       = x_list[0]                     # (context_len, B, N)
-        ctx_mean = x.mean(dim=0, keepdim=True).expand(PRED_LEN, -1, -1).to(device)
+    for X, Y in val_loader:
+        X        = X.to(device)
         Y        = Y.to(device)
-        ae       = (ctx_mean - Y).abs()
+        y_poco   = Y.permute(1, 0, 2)
+        ctx_mean = X.mean(dim=1, keepdim=True).permute(1, 0, 2).expand(PRED_LEN, -1, -1)
+        ae       = (ctx_mean - y_poco).abs()
         mean_errors += ae.mean(dim=(1, 2)).cpu().numpy()
         n_mean  += 1
 

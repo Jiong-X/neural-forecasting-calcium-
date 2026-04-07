@@ -1,11 +1,10 @@
-# Core
+
 torch>=2.5.1
+numpy>=1.26.4
+matplotlib>=3.9.1
+scipy>=1.15.2
 
-# Allowed extras (2)
-matplotlib>=3.9.1       # all plots and visualisations
-#scipy>=1.15.2           # calibration, statistics, signal processing
-
-# Optional — only needed to preprocess raw HDF5 files (first run of train.py)
-# NOT required if data/processed/*.npz already exists
-# PCA is implemented via numpy.linalg.svd — scikit-learn is no longer needed
-# pip install h5py
+# ============================================================
+#  Optional — only needed if preprocessing raw HDF5 from scratch
+# ============================================================
+# h5py                 # read raw TimeSeries.h5 files

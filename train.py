@@ -33,8 +33,10 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
+torch.backends.cudnn.deterministic = True   # force deterministic CUDA kernels
+torch.backends.cudnn.benchmark     = False  # disable auto-tuner (picks same algo each run)
 
-from src.dataset    import get_dataset, get_test_dataset
+from src.dataset    import get_splits
 from src.model      import ProbabilisticForecaster
 from src.train_utils import train_one_epoch, validate, compute_mae
 
@@ -59,7 +61,9 @@ RESULTS_PATH= "results/train_losses.npz"
 print(f"Device: {DEVICE}")
 print("Loading data (downloads automatically if not present)...")
 
-train_dataset, val_dataset = get_dataset(
+# 60 / 20 / 20 temporal split — matches POCO paper (Section 4)
+# mu/sd fitted on training split only; applied to val and test
+train_dataset, val_dataset, test_dataset = get_splits(
     seq_length  = SEQ_LENGTH,
     pred_length = PRED_LENGTH,
 )
@@ -67,6 +71,8 @@ train_dataset, val_dataset = get_dataset(
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE,
                           shuffle=True,  num_workers=0, drop_last=True)
 val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE,
+                          shuffle=False, num_workers=0)
+test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE,
                           shuffle=False, num_workers=0)
 
 # ---------------------------------------------------------------------------
@@ -129,9 +135,6 @@ print(f"\nBest val NLL: {best_val_loss:.4f}  — saved to {SAVE_PATH}")
 # Test evaluation — run once on held-out set using best checkpoint
 # ---------------------------------------------------------------------------
 model.load_state_dict(torch.load(SAVE_PATH, map_location=DEVICE, weights_only=True))
-
-test_dataset = get_test_dataset(seq_length=SEQ_LENGTH, pred_length=PRED_LENGTH)
-test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 test_loss = validate(model, test_loader, DEVICE)
 test_mae  = compute_mae(model, test_loader, DEVICE)

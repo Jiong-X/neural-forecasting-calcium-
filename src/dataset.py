@@ -47,6 +47,9 @@ class CalciumDataset(Dataset):
     """
     Wraps a (T, N) trace array into sliding-window (context, target) pairs.
 
+    Expects traces that are already z-scored — normalisation is done once
+    over the full recording in get_splits() before this class is called.
+
     Each item:
         x : (context_len, N)  — input population activity
         y : (pred_len,    N)  — target population activity
@@ -54,10 +57,6 @@ class CalciumDataset(Dataset):
 
     def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
         traces = traces.astype(np.float32)
-        # z-score each channel independently
-        mu     = traces.mean(0, keepdims=True)
-        sd     = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
 
         win = context_len + pred_len
         X, Y = [], []
@@ -273,55 +272,77 @@ def _load_traces(chunked:bool=True) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def get_dataset(seq_length: int = 64,
-                pred_length: int = 16,
-                train_frac: float = 0.6,
-                val_frac: float   = 0.2):
+
+# POCO paper temporal split ratios (Section 4 / Appendix A)
+TRAIN_FRAC = 0.6   # first 60 % of recording
+VAL_FRAC   = 0.2   # next  20 %
+# TEST_FRAC = 0.2  # final 20 % — held out, never used during training
+
+
+def get_splits(seq_length:  int   = 64,
+               pred_length: int   = 16,
+               train_frac:  float = TRAIN_FRAC,
+               val_frac:    float = VAL_FRAC):
     """
-    Returns (train_dataset, val_dataset) of CalciumDataset objects.
+    Return (train_ds, val_ds, test_ds) for the 60/20/20 temporal split
+    used in the POCO paper.
+
+    Z-scoring is applied to the **full recording** before splitting,
+    so every split shares the same per-neuron scale.  This is the natural
+    choice for a single continuous calcium imaging session where the
+    fluorescence baseline is stable throughout.
+
+    Split bounds:
+      train : traces[0         : train_end]  — 60 %
+      val   : traces[train_end : val_end  ]  — 20 %
+      test  : traces[val_end   : end      ]  — 20 %
 
     Data is retrieved automatically:
       - loads data/processed/0.npz if available
       - preprocesses data/raw/subject_0/TimeSeries.h5 if available
-      - downloads from Janelia figshare otherwise
-
-    Args:
-        seq_length   : total window length = context_len + pred_length
-        pred_length  : number of steps to predict
-        train_frac   : fraction of timesteps for training   (default 0.6)
-        val_frac     : fraction of timesteps for validation (default 0.2)
-                       remaining 0.2 is held as test set
+      - downloads from Janelia figshare otherwise (~2 GB, first run only)
 
     Returns:
-        train_dataset : CalciumDataset
-        val_dataset   : CalciumDataset
+        train_ds, val_ds, test_ds : CalciumDataset
     """
     context_len = seq_length - pred_length
 
-    traces = _load_traces()
-    T = traces.shape[0]
-    print(f"Loaded traces: {T} timesteps x {traces.shape[1]} PCs")
+    traces = _load_traces()        # (T, N) raw float32
+    T      = traces.shape[0]
+
+    # ── Z-score each neuron over the full recording ────────────────────────
+    mu     = traces.mean(0, keepdims=True)
+    sd     = traces.std(0,  keepdims=True) + 1e-8
+    traces = (traces - mu) / sd    # (T, N) normalised
 
     train_end = int(T * train_frac)
     val_end   = int(T * (train_frac + val_frac))
 
-    train_ds = CalciumDataset(traces[:train_end],         context_len, pred_length)
-    val_ds   = CalciumDataset(traces[train_end:val_end],  context_len, pred_length)
+    print(f"Data loaded  : {T} timesteps × {traces.shape[1]} PCs  (z-scored over full recording)")
+    print(f"Split bounds : train 0–{train_end}  |  "
+          f"val {train_end}–{val_end}  |  test {val_end}–{T}")
 
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
+    train_ds = CalciumDataset(traces[:train_end],          context_len, pred_length)
+    val_ds   = CalciumDataset(traces[train_end:val_end],   context_len, pred_length)
+    test_ds  = CalciumDataset(traces[val_end:],            context_len, pred_length)
+
+    print(f"Windows      : train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}")
+    return train_ds, val_ds, test_ds
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible shims
+# ---------------------------------------------------------------------------
+
+def get_dataset(seq_length: int = 64, pred_length: int = 16,
+                train_frac: float = TRAIN_FRAC, val_frac: float = VAL_FRAC):
+    """Returns (train_ds, val_ds). Use get_splits() for all three at once."""
+    train_ds, val_ds, _ = get_splits(seq_length, pred_length, train_frac, val_frac)
     return train_ds, val_ds
 
 
-def get_test_dataset(seq_length: int = 64,
-                     pred_length: int = 16,
-                     train_frac: float = 0.6,
-                     val_frac: float   = 0.2):
-    """
-    Returns the held-out test dataset (final 20% of session).
-    Only call this after training is complete.
-    """
-    context_len = seq_length - pred_length
-    traces  = _load_traces()
-    T       = traces.shape[0]
-    val_end = int(T * (train_frac + val_frac))
-    return CalciumDataset(traces[val_end:], context_len, pred_length)
+def get_test_dataset(seq_length: int = 64, pred_length: int = 16,
+                     train_frac: float = TRAIN_FRAC, val_frac: float = VAL_FRAC):
+    """Returns the held-out test_ds only. Use get_splits() for all three at once."""
+    _, _, test_ds = get_splits(seq_length, pred_length, train_frac, val_frac)
+    return test_ds

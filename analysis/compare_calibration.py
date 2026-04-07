@@ -31,10 +31,10 @@ import scipy.stats
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poco_src.standalone_poco import NeuralPredictionConfig
-from poco_src.POCO_prob    import ProbabilisticPOCO
+from poco_src.POCO_prob    import ProbabilisticPOCO, CalciumDataset
 from poco_src.POCO_studentt import StudentTPOCO
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -66,23 +66,6 @@ ALPHAS = np.linspace(0.05, 0.95, 19)   # nominal confidence levels
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
-# ── Dataset ───────────────────────────────────────────────────────────────────
-class CalciumDataset(Dataset):
-    def __init__(self, traces, context_len, pred_len):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(0, keepdims=True)
-        sd = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
-        win = context_len + pred_len
-        X, Y = [], []
-        for t in range(len(traces) - win + 1):
-            X.append(traces[t           : t + context_len])
-            Y.append(traces[t + context_len : t + win    ])
-        self.X = torch.tensor(np.array(X))
-        self.Y = torch.tensor(np.array(Y))
-    def __len__(self):        return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
 # ── Load data ─────────────────────────────────────────────────────────────────
 data = np.load(DATA_PATH)
 raw  = data["PC"].astype(np.float32)
@@ -93,6 +76,11 @@ T, N = raw.shape
 
 train_end = int(T * TRAIN_FRAC)
 val_end   = int(T * (TRAIN_FRAC + VAL_FRAC))
+
+# z-score each neuron over the full recording before splitting
+mu  = raw.mean(0, keepdims=True)
+sd  = raw.std(0,  keepdims=True) + 1e-8
+raw = (raw - mu) / sd
 
 test_ds     = CalciumDataset(raw[val_end:], CONTEXT, PRED_LEN)
 test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
@@ -140,8 +128,10 @@ results = {}
 if os.path.exists(PROB_PATH):
     print(f"\nLoading POCO_prob from {PROB_PATH} …")
     prob_model = ProbabilisticPOCO(make_config(), [[N]]).to(DEVICE)
-    prob_model.load_state_dict(
-        torch.load(PROB_PATH, map_location=DEVICE, weights_only=False))
+    _ckpt = torch.load(PROB_PATH, map_location=DEVICE, weights_only=True)
+    if all(k.startswith("poco.") for k in _ckpt):
+        _ckpt = {k[len("poco."):]: v for k, v in _ckpt.items()}
+    prob_model.load_state_dict(_ckpt)
     prob_model.eval()
 
     mu_prob, sg_prob, y_prob = [], [], []
@@ -174,8 +164,10 @@ else:
 if os.path.exists(ST_PATH):
     print(f"\nLoading POCO_studentt from {ST_PATH} …")
     st_model = StudentTPOCO(make_config(), [[N]], df=DF).to(DEVICE)
-    st_model.load_state_dict(
-        torch.load(ST_PATH, map_location=DEVICE, weights_only=False))
+    _ckpt_st = torch.load(ST_PATH, map_location=DEVICE, weights_only=True)
+    if all(k.startswith("poco.") for k in _ckpt_st):
+        _ckpt_st = {k[len("poco."):]: v for k, v in _ckpt_st.items()}
+    st_model.load_state_dict(_ckpt_st)
     st_model.eval()
 
     mu_st, sg_st, y_st = [], [], []

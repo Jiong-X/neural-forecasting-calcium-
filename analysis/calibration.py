@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 import scipy.stats
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
 from poco_src.standalone_poco import NeuralPredictionConfig
@@ -59,6 +59,11 @@ T, N   = traces.shape
 train_end = int(T * TRAIN_FRAC)
 val_end   = int(T * (TRAIN_FRAC + VAL_FRAC))
 
+# z-score each neuron over the full recording before splitting
+mu     = traces.mean(0, keepdims=True)
+sd     = traces.std(0,  keepdims=True) + 1e-8
+traces = (traces - mu) / sd
+
 test_ds     = CalciumDataset(traces[val_end:], context_len=CONTEXT, pred_len=PRED_LEN)
 test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 print(f"Test windows: {len(test_ds)}")
@@ -77,8 +82,10 @@ config.decoder_num_heads   = NUM_HEADS
 config.poyo_num_latents    = NUM_LATENTS
 
 model = ProbabilisticPOCO(config, [[N]]).to(device)
-model.load_state_dict(
-    torch.load(MODEL_PATH, map_location=device, weights_only=True))
+_ckpt = torch.load(MODEL_PATH, map_location=device, weights_only=True)
+if all(k.startswith("poco.") for k in _ckpt):
+    _ckpt = {k[len("poco."):]: v for k, v in _ckpt.items()}
+model.load_state_dict(_ckpt)
 model.eval()
 print("Model loaded.")
 

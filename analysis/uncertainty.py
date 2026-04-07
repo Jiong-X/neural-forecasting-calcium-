@@ -25,9 +25,9 @@ import torch
 from torch.utils.data import DataLoader
 
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss
+from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss, CalciumDataset
 from poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
@@ -108,6 +108,7 @@ if __name__ == "__main__":
     PRED_LEN   = 16
     BATCH_SIZE = 16
     MC_SAMPLES = 50     # number of stochastic forward passes
+    TRAIN_FRAC = 0.6
     VAL_FRAC   = 0.2
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -121,8 +122,13 @@ if __name__ == "__main__":
     raw  = raw[:, :N_PCS]
     T, N = raw.shape
 
-    split  = int(T * (1 - VAL_FRAC))
-    val_ds = CalciumDataset(raw[split:], context_len=CONTEXT, pred_len=PRED_LEN)
+    # z-score each neuron over the full recording before splitting
+    mu  = raw.mean(0, keepdims=True)
+    sd  = raw.std(0,  keepdims=True) + 1e-8
+    raw = (raw - mu) / sd
+
+    val_end = int(T * (TRAIN_FRAC + VAL_FRAC))
+    val_ds  = CalciumDataset(raw[val_end:], context_len=CONTEXT, pred_len=PRED_LEN)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
     # ---- Model ----
@@ -137,7 +143,10 @@ if __name__ == "__main__":
     config.poyo_num_latents    = 8
 
     model = ProbabilisticPOCO(config, [[N]]).to(device)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
+    _ckpt = torch.load(MODEL_PATH, map_location=device, weights_only=True)
+    if all(k.startswith("poco.") for k in _ckpt):
+        _ckpt = {k[len("poco."):]: v for k, v in _ckpt.items()}
+    model.load_state_dict(_ckpt)
     print(f"Loaded weights from {MODEL_PATH}")
 
     # ---- MC Dropout over validation set ----
