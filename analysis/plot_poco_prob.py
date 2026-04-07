@@ -12,7 +12,7 @@ Decomposition (Kendall & Gal, 2017):
     epistemic  = sqrt( Var_t[mu]    )
     total      = sqrt( E[sigma^2] + Var[mu] )
 """
-
+import sys
 import os
 import torch
 import numpy as np
@@ -21,8 +21,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-from POCO_prob import ProbabilisticPOCO, CalciumDataset
-from standalone_poco import NeuralPredictionConfig, POCO
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+
+from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
+from poco_src.standalone_poco import NeuralPredictionConfig, POCO
 
 # ---------------------------------------------------------------------------
 # Config — must match training settings in POCO.py and POCO_prob.py
