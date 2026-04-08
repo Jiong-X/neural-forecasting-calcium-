@@ -22,8 +22,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from util import CalciumDataset, collate_fn
+from util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model — self-contained DLinear (no external dependencies)
@@ -143,29 +142,17 @@ if __name__ == "__main__":
     EPOCHS     = 50
     LR         = 1e-3
     VAL_FRAC   = 0.2
+    TRAIN_FRAC = 0.6
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    data = np.load(DATA_PATH)
-    raw  = data["PC"].astype(np.float32)
-    if raw.shape[0] < raw.shape[1]:
-        raw = raw.T
-    traces = raw[:, :N_PCS] if N_PCS else raw
-    T, N   = traces.shape
-    print(f"Traces: {T} steps x {N} features")
+    # --- Data ---
+    CONTEXT_LEN  = SEQ_LEN - PRED_LEN
 
-    split    = int(T * (1 - VAL_FRAC))
-    train_ds = CalciumDataset(traces[:split], SEQ_LEN, PRED_LEN)
-    val_ds   = CalciumDataset(traces[split:], SEQ_LEN, PRED_LEN)
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
-
-    train_loader = DataLoader(train_ds, BATCH_SIZE, shuffle=True,
-                              collate_fn=collate_lbd, num_workers=0)
-    val_loader   = DataLoader(val_ds,   BATCH_SIZE, shuffle=False,
-                              collate_fn=collate_lbd, num_workers=0)
-
-    CONTEXT_LEN = SEQ_LEN - PRED_LEN
+    train_loader, val_loader, N = fetch_data_loaders("DLinear",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
+    
+    # --- Model ---
     model = DLinear(CONTEXT_LEN, PRED_LEN, N, individual=False).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")

@@ -20,8 +20,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-
+from util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model — self-contained NLinear (no external dependencies)
@@ -63,25 +62,6 @@ class NLinear(nn.Module):
 # ---------------------------------------------------------------------------
 # Dataset  (batch-first: B, T, N)
 # ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, seq_len: int = 64, pred_len: int = 16):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(0, keepdims=True)
-        sd = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
-
-        context_len = seq_len - pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t            : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-
-        self.X = torch.tensor(np.array(X))
-        self.Y = torch.tensor(np.array(Y))
-
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
 
 
 def collate_lbd(batch):
@@ -144,29 +124,18 @@ if __name__ == "__main__":
     EPOCHS     = 50
     LR         = 1e-3
     VAL_FRAC   = 0.2
+    TRAIN_FRAC = 0.6
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    data = np.load(DATA_PATH)
-    raw  = data["PC"].astype(np.float32)
-    if raw.shape[0] < raw.shape[1]:
-        raw = raw.T
-    traces = raw[:, :N_PCS] if N_PCS else raw
-    T, N   = traces.shape
-    print(f"Traces: {T} steps x {N} features")
+    # --- Data ---
+    CONTEXT_LEN  = SEQ_LEN - PRED_LEN
 
-    split    = int(T * (1 - VAL_FRAC))
-    train_ds = CalciumDataset(traces[:split], SEQ_LEN, PRED_LEN)
-    val_ds   = CalciumDataset(traces[split:], SEQ_LEN, PRED_LEN)
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
-
-    train_loader = DataLoader(train_ds, BATCH_SIZE, shuffle=True,
-                              collate_fn=collate_lbd, num_workers=0)
-    val_loader   = DataLoader(val_ds,   BATCH_SIZE, shuffle=False,
-                              collate_fn=collate_lbd, num_workers=0)
-
-    CONTEXT_LEN = SEQ_LEN - PRED_LEN
+    train_loader, val_loader, N = fetch_data_loaders("NLinear",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
+    
+    
+    # --- Model ---
     model = NLinear(CONTEXT_LEN, PRED_LEN, N, individual=False).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")

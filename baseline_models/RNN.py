@@ -8,30 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-
-
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, seq_len: int = 50, pred_steps: int = 1):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(axis=0, keepdims=True)
-        sd = traces.std(axis=0, keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
-
-        X, y = [], []
-        for t in range(len(traces) - seq_len - pred_steps + 1):
-            X.append(traces[t : t + seq_len])
-            y.append(traces[t + seq_len : t + seq_len + pred_steps])
-
-        self.X = torch.tensor(np.array(X))
-        self.y = torch.tensor(np.array(y))
-
-    def __len__(self): return len(self.X)
-    def __getitem__(self, idx): return self.X[idx], self.y[idx]
-
+from util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model
@@ -145,26 +122,15 @@ if __name__ == "__main__":
     EPOCHS     = 50
     LR         = 1e-3
     VAL_FRAC   = 0.2
+    TRAIN_FRAC = 0.6
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    data = np.load(DATA_PATH)
-    raw  = data["PC"].astype(np.float32)
-    if raw.shape[0] < raw.shape[1]:
-        raw = raw.T
-    traces = raw[:, :N_PCS] if N_PCS is not None else raw
-    T, N   = traces.shape
-    print(f"Traces shape: {traces.shape}  (T={T}, features={N})")
+    # --- Data ---
+    train_loader, val_loader, N = fetch_data_loaders("RNN",SEQ_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
 
-    split    = int(T * (1 - VAL_FRAC))
-    train_ds = CalciumDataset(traces[:split], seq_len=SEQ_LEN, pred_steps=PRED_STEPS)
-    val_ds   = CalciumDataset(traces[split:], seq_len=SEQ_LEN, pred_steps=PRED_STEPS)
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
-
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
-
+    # --- Model ---
     model = CalciumVanillaRNN(
         n_neurons=N, hidden_size=HIDDEN, num_layers=LAYERS,
         dropout=DROPOUT, default_pred_steps=PRED_STEPS,

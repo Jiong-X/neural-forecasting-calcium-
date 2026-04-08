@@ -246,7 +246,7 @@ if __name__ == "__main__":
     # --- Data ---
     CONTEXT_LEN  = SEQ_LEN - PRED_LEN
 
-    train_loader, val_loader = fetch_data_loaders("TexFilter",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
+    train_loader, val_loader, N = fetch_data_loaders("TexFilter",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
     
     
     # --- Model ---
