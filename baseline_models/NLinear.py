@@ -58,19 +58,6 @@ class NLinear(nn.Module):
         out = out + last
         return out.permute(1, 0, 2)  # → (pred_len, B, N)
 
-
-# ---------------------------------------------------------------------------
-# Dataset  (batch-first: B, T, N)
-# ---------------------------------------------------------------------------
-
-
-def collate_lbd(batch):
-    """Stack into (L, B, D) format expected by POCO single-session models."""
-    X = torch.stack([b[0] for b in batch], dim=1)   # (context_len, B, N)
-    Y = torch.stack([b[1] for b in batch], dim=1)   # (pred_len,    B, N)
-    return X, Y
-
-
 # ---------------------------------------------------------------------------
 # Training / evaluation
 # ---------------------------------------------------------------------------

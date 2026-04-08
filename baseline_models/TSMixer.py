@@ -62,7 +62,6 @@ class _FeatMixBlock(nn.Module):
         x = self.fc2(x)
         return x + r
 
-
 class TSMixer(nn.Module):
     """
     TSMixer (Chen et al. 2023) — alternating temporal and feature MLP mixing.

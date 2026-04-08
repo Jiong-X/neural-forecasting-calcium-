@@ -40,7 +40,7 @@ class CalciumDataset(_Abstract_CalciumDataset):
         context_len = seq_len - pred_len
         X, Y = [], []
         for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t            : t + context_len])
+            X.append(traces[t : t + context_len])
             Y.append(traces[t + context_len : t + seq_len])
         self.X = torch.tensor(np.array(X))   # (S, context_len, N)
         self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)

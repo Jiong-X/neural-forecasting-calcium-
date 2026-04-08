@@ -31,10 +31,6 @@ from torch.utils.data import Dataset, DataLoader
 
 class CalciumDataset(Dataset):
     def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(0, keepdims=True)
-        sd = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
 
         seq_len = context_len + pred_len
         X, Y = [], []
