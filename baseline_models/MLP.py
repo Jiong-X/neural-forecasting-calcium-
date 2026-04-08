@@ -99,7 +99,7 @@ class MLPHead(nn.Module):
         """
         x = x_list[0] # (context_len, B, N)
         x = x.permute(1, 2, 0) # Reorders dimensions to (B, N, context_len)
-        h = self.in_proj(x) # (B, N, cond_dim)
+        h = self.in_proj(x) # (B, N, cond_dim) <- note no FILM conditioning at all here 
 
         mu      = self.mu_proj(h)                                  # (B, N, pred_len)
         log_sig = self.log_sig_proj(h).clamp(self.LOG_SIG_MIN, self.LOG_SIG_MAX)
