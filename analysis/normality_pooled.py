@@ -99,16 +99,13 @@ print(f"{'='*55}")
 # ── Figure: 3 panels in a single row ─────────────────────────────────────────
 fig, axes = plt.subplots(1, 3, figsize=(17, 5))
 
-# clip for display only (does not affect tests)
-clip = np.percentile(np.abs(pooled), 99.5)
-pooled_c = np.clip(pooled, -clip, clip)
 
 # ─ Panel 1: Histogram + KDE + N(0,1) ─────────────────────────────────────────
 ax = axes[0]
-ax.hist(pooled_c, bins=120, density=True,
+ax.hist(pooled, bins=120, density=True,
         color="#4878CF", alpha=0.55, edgecolor="none", label="Residuals")
-kde  = gaussian_kde(pooled_c, bw_method=0.15)
-xg   = np.linspace(pooled_c.min(), pooled_c.max(), 500)
+kde  = gaussian_kde(pooled, bw_method=0.15)
+xg   = np.linspace(pooled.min(), pooled.max(), 500)
 ax.plot(xg, kde(xg),      color="#4878CF", lw=2,   label="KDE")
 ax.plot(xg, norm.pdf(xg), color="crimson", lw=2,
         linestyle="--", label="N(0,1)")
@@ -126,7 +123,7 @@ ax.text(0.03, 0.97,
 # ─ Panel 2: Q-Q plot ──────────────────────────────────────────────────────────
 ax = axes[1]
 # subsample for Q-Q readability (probplot is slow with 1M+ points)
-qq_sample = pooled_c
+qq_sample = pooled
 if len(qq_sample) > 20000:
     qq_sample = np.random.choice(qq_sample, 20000, replace=False)
 
