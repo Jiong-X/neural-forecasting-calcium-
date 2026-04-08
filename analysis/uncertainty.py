@@ -99,7 +99,7 @@ if __name__ == "__main__":
     torch.manual_seed(42)
 
     DATA_PATH    = "data/processed/0.npz"
-    MODEL_PATH   = "models/best_poco_prob.pt"
+    MODEL_PATH   = "models/saved/model.pt"
     RESULTS_PATH = "results/uncertainty.npz"
     os.makedirs("results", exist_ok=True)
 
@@ -136,10 +136,10 @@ if __name__ == "__main__":
     config.seq_length          = CONTEXT + PRED_LEN
     config.pred_length         = PRED_LEN
     config.compression_factor  = 16
-    config.decoder_hidden_size = 64
-    config.conditioning_dim    = 128
+    config.decoder_hidden_size = 128
+    config.conditioning_dim    = 1024
     config.decoder_num_layers  = 1
-    config.decoder_num_heads   = 8
+    config.decoder_num_heads   = 16
     config.poyo_num_latents    = 8
 
     model = ProbabilisticPOCO(config, [[N]]).to(device)
