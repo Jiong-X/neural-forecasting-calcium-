@@ -252,21 +252,16 @@ def _load_traces(chunked:bool=True) -> np.ndarray:
             raw = raw.T                        # ensure (T, N)
         return raw[:, :N_PCS]
 
-    # 2. Raw HDF5 present — preprocess it
-    if os.path.exists(RAW_PATH):
-        if chunked:
-            _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
-        else:
-            _preprocess_raw
-        return _load_traces()
+    # Nothing local — download then preprocess
+    if not os.path.exists(RAW_PATH):
+         _download_raw()
 
-    # 3. Nothing local — download then preprocess
-    _download_raw()
+    # preprocess it
     if chunked:
         _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
     else:
         _preprocess_raw(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
-    return _load_traces()
+    return _load_traces(chunked=chunked)
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-
+from util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # RevIN  (copied verbatim from POCO/models/layers/normalizer.py)
@@ -179,29 +179,6 @@ class TexFilter(nn.Module):
         return [x]
 
 
-# ---------------------------------------------------------------------------
-# Dataset  (identical sliding-window approach as NLinear / DLinear)
-# ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, seq_len: int, pred_len: int):
-        traces = traces.astype(np.float32)
-        context_len = seq_len - pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t            : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-        self.X = torch.tensor(np.array(X))   # (S, context_len, N)
-        self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)
-
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
-
-def collate_fn(batch):
-    X = torch.stack([b[0] for b in batch], dim=1)   # (context_len, B, N)
-    Y = torch.stack([b[1] for b in batch], dim=1)   # (pred_len,    B, N)
-    return X, Y
 
 
 # ---------------------------------------------------------------------------
@@ -260,31 +237,18 @@ if __name__ == "__main__":
     BATCH_SIZE = 64
     EPOCHS     = 50
     LR         = 3e-4
+    TRAIN_FRAC = 0.6
     VAL_FRAC   = 0.2
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     # --- Data ---
-    data   = np.load(DATA_PATH)
-    raw    = data["PC"].astype(np.float32)
-    if raw.shape[0] < raw.shape[1]:
-        raw = raw.T                            # → (T, N)
-    raw    = raw[:, :N_PCS] if N_PCS else raw
-    T, N   = raw.shape
-    print(f"Traces: {T} steps x {N} features")
-
-    split      = int(T * (1 - VAL_FRAC))
-    train_ds   = CalciumDataset(raw[:split], SEQ_LEN, PRED_LEN)
-    val_ds     = CalciumDataset(raw[split:], SEQ_LEN, PRED_LEN)
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
-
     CONTEXT_LEN  = SEQ_LEN - PRED_LEN
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                              collate_fn=collate_fn, drop_last=True,  num_workers=0)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
-                              collate_fn=collate_fn, drop_last=False, num_workers=0)
 
+    train_loader, val_loader = fetch_data_loaders("TexFilter",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
+    
+    
     # --- Model ---
     model = TexFilter(N, CONTEXT_LEN, PRED_LEN,
                       embed_size=EMBED_SIZE, hidden_size=HIDDEN,

@@ -23,8 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-
+from util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model — self-contained TSMixer (no external dependencies)
@@ -88,36 +87,6 @@ class TSMixer(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, seq_len: int = 64, pred_len: int = 16):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(0, keepdims=True)
-        sd = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
-
-        context_len = seq_len - pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t            : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-
-        self.X = torch.tensor(np.array(X))
-        self.Y = torch.tensor(np.array(Y))
-
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
-
-def collate_lbd(batch):
-    X = torch.stack([b[0] for b in batch], dim=1)   # (context_len, B, N)
-    Y = torch.stack([b[1] for b in batch], dim=1)   # (pred_len,    B, N)
-    return X, Y
-
-
-# ---------------------------------------------------------------------------
 # Training / evaluation
 # ---------------------------------------------------------------------------
 
@@ -175,28 +144,18 @@ if __name__ == "__main__":
     WEIGHT_DECAY = 1e-4      # paper default
     GRAD_CLIP    = 5.0       # paper default
     VAL_FRAC   = 0.2
+    TRAIN_FRAC = 0.6
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    data = np.load(DATA_PATH)
-    raw  = data["PC"].astype(np.float32)
-    if raw.shape[0] < raw.shape[1]:
-        raw = raw.T
-    traces = raw[:, :N_PCS] if N_PCS else raw
-    T, N   = traces.shape
-    print(f"Traces: {T} steps x {N} features")
+     # --- Data ---
+    CONTEXT_LEN  = SEQ_LEN - PRED_LEN
 
-    split    = int(T * (1 - VAL_FRAC))
-    train_ds = CalciumDataset(traces[:split], SEQ_LEN, PRED_LEN)
-    val_ds   = CalciumDataset(traces[split:], SEQ_LEN, PRED_LEN)
-    print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
-
-    CONTEXT_LEN = SEQ_LEN - PRED_LEN
-    train_loader = DataLoader(train_ds, BATCH_SIZE, shuffle=True,
-                              collate_fn=collate_lbd, num_workers=0, drop_last=True)
-    val_loader   = DataLoader(val_ds,   BATCH_SIZE, shuffle=False,
-                              collate_fn=collate_lbd, num_workers=0)
+    train_loader, val_loader = fetch_data_loaders("TSMixer", SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
+    
+    # --- Model ---
+    
     model = TSMixer(CONTEXT_LEN, PRED_LEN, N, ff_dim=FF_DIM, n_layers=N_LAYERS, dropout=DROPOUT).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")

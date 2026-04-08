@@ -23,7 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-
+from util import CalciumDataset, collate_fn
 
 # ---------------------------------------------------------------------------
 # Model — self-contained DLinear (no external dependencies)
@@ -88,35 +88,6 @@ class DLinear(nn.Module):
         out = s_out + t_out         # (B, pred_len, N)
         return out.permute(1, 0, 2) # → (pred_len, B, N)
 
-
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, seq_len: int = 64, pred_len: int = 16):
-        traces = traces.astype(np.float32)
-        mu = traces.mean(0, keepdims=True)
-        sd = traces.std(0,  keepdims=True) + 1e-8
-        traces = (traces - mu) / sd
-
-        context_len = seq_len - pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t            : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-
-        self.X = torch.tensor(np.array(X))
-        self.Y = torch.tensor(np.array(Y))
-
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
-
-def collate_lbd(batch):
-    X = torch.stack([b[0] for b in batch], dim=1)
-    Y = torch.stack([b[1] for b in batch], dim=1)
-    return X, Y
 
 
 # ---------------------------------------------------------------------------
