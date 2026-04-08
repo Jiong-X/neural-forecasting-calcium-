@@ -36,7 +36,7 @@ os.makedirs("results/plots", exist_ok=True)
 # ---------------------------------------------------------------------------
 DATA_PATH      = "data/processed/0.npz"
 DET_MODEL_PATH = "models/best_calcium_poco.pt"
-PROB_MODEL_PATH= "models/best_poco_prob.pt"
+PROB_MODEL_PATH= "models/saved/model.pt"
 
 N_PCS        = 128
 SEQ_LEN      = 64       # context (48) + horizon (16)
@@ -47,10 +47,10 @@ VAL_FRAC     = 0.2
 
 COMPRESSION  = 16
 NUM_LATENTS  = 8
-HIDDEN_DIM   = 64
-COND_DIM     = 256
+HIDDEN_DIM   = 128
+COND_DIM     = 1024
 NUM_LAYERS   = 1
-NUM_HEADS    = 8
+NUM_HEADS    = 16
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
@@ -86,7 +86,7 @@ def det_config():
     cfg.compression_factor     = COMPRESSION
     cfg.poyo_num_latents       = NUM_LATENTS
     cfg.decoder_hidden_size    = HIDDEN_DIM
-    cfg.conditioning_dim       = 256
+    cfg.conditioning_dim       = COND_DIM
     cfg.decoder_num_layers     = NUM_LAYERS
     cfg.decoder_num_heads      = NUM_HEADS
     cfg.decoder_context_length = None
@@ -102,7 +102,7 @@ def prob_config():
     cfg.compression_factor     = COMPRESSION
     cfg.poyo_num_latents       = NUM_LATENTS
     cfg.decoder_hidden_size    = HIDDEN_DIM
-    cfg.conditioning_dim       = 256
+    cfg.conditioning_dim       = COND_DIM
     cfg.decoder_num_layers     = NUM_LAYERS
     cfg.decoder_num_heads      = NUM_HEADS
     cfg.decoder_context_length = None
