@@ -122,11 +122,6 @@ if __name__ == "__main__":
     raw  = raw[:, :N_PCS]
     T, N = raw.shape
 
-    # z-score each neuron over the full recording before splitting
-    mu  = raw.mean(0, keepdims=True)
-    sd  = raw.std(0,  keepdims=True) + 1e-8
-    raw = (raw - mu) / sd
-
     val_end = int(T * (TRAIN_FRAC + VAL_FRAC))
     val_ds  = CalciumDataset(raw[val_end:], context_len=CONTEXT, pred_len=PRED_LEN)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
