@@ -191,58 +191,11 @@ def _preprocess_raw_chunked(raw_path: str, out_path: str, n_pcs: int = N_PCS, ch
 
     print(f"Saved processed PCs to {out_path} with shape {PC.shape}")
 
-def _preprocess_raw(raw_path: str, out_path: str, n_pcs: int = N_PCS):
-    """
-    Preprocess raw TimeSeries.h5 → processed .npz.
-    Pipeline: load CellResp → z-score per neuron → PCA → save top n_pcs PCs.
-
-    PCA is implemented via numpy.linalg.svd — no scikit-learn required.
-    Only extra dependency: h5py (pip install h5py).
-    """
-    try:
-        import h5py
-    except ImportError:
-        raise ImportError(
-            "h5py is required to preprocess raw HDF5 data.\n"
-            "Install with:  pip install h5py"
-        )
-
-    print(f"Preprocessing {raw_path} ...")
-    with h5py.File(raw_path, "r") as f:
-        cell_resp = f["CellResp"][:]          # (T, N_neurons)
-
-    data = cell_resp.T.astype(np.float32)     # (N_neurons, T)
-
-    # z-score each neuron over time
-    mu   = data.mean(axis=1, keepdims=True)
-    std  = data.std(axis=1,  keepdims=True) + 1e-6
-    M    = (data - mu) / std                  # (N_neurons, T)
-
-    # PCA via truncated SVD (numpy only — no scikit-learn needed)
-    # M.T is (T, N_neurons); we want top n_pcs principal components
-    print(f"  Running PCA (n_components={n_pcs}) on {M.shape} matrix ...")
-    X   = M.T                                 # (T, N_neurons)
-    X   = X - X.mean(axis=0, keepdims=True)   # centre columns
-    # economy SVD: U (T,k), s (k,), Vt (k, N_neurons)
-    print(f"shape of x is: {X.shape}") 
-
-    U, s, Vt = np.linalg.svd(X, full_matrices=False)
-    # scores = U * s gives principal component projections (T, k)
-    scores = U[:, :n_pcs] * s[:n_pcs]        # (T, n_pcs)
-    PC     = scores.T                         # (n_pcs, T)
-
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    np.savez(out_path,
-             PC            = PC,
-             M             = M,
-             valid_indices = np.ones(data.shape[0], dtype=bool))
-    print(f"  Saved to {out_path}")
-
-
-def _load_traces(chunked:bool=True) -> np.ndarray:
+def _load_traces() -> np.ndarray:
     """
     Return (T, N_PCS) float32 trace array.
     Auto-downloads and preprocesses if needed.
+    Pre-processing includes Z-scoring
     """
     # 1. Already preprocessed
     if os.path.exists(PROCESSED_PATH):
@@ -256,12 +209,10 @@ def _load_traces(chunked:bool=True) -> np.ndarray:
     if not os.path.exists(RAW_PATH):
          _download_raw()
 
-    # preprocess it
-    if chunked:
-        _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
-    else:
-        _preprocess_raw(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
-    return _load_traces(chunked=chunked)
+  
+    _preprocess_raw_chunked(RAW_PATH, PROCESSED_PATH, n_pcs=N_PCS)
+    
+    return _load_traces()
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +233,6 @@ def get_splits(seq_length:  int   = 64,
     Return (train_ds, val_ds, test_ds) for the 60/20/20 temporal split
     used in the POCO paper.
 
-    Z-scoring is applied to the **full recording** before splitting,
-    so every split shares the same per-neuron scale.  This is the natural
-    choice for a single continuous calcium imaging session where the
-    fluorescence baseline is stable throughout.
-
     Split bounds:
       train : traces[0         : train_end]  — 60 %
       val   : traces[train_end : val_end  ]  — 20 %
@@ -304,11 +250,6 @@ def get_splits(seq_length:  int   = 64,
 
     traces = _load_traces()        # (T, N) raw float32
     T      = traces.shape[0]
-
-    # ── Z-score each neuron over the full recording ────────────────────────
-    mu     = traces.mean(0, keepdims=True)
-    sd     = traces.std(0,  keepdims=True) + 1e-8
-    traces = (traces - mu) / sd    # (T, N) normalised
 
     train_end = int(T * train_frac)
     val_end   = int(T * (train_frac + val_frac))

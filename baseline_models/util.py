@@ -2,8 +2,6 @@ import sys
 import os
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,27 +15,10 @@ from abc import abstractmethod, ABC
 # Dataset 
 # ---------------------------------------------------------------------------
 
-class _Abstract_CalciumDataset(ABC, Dataset):
-    @abstractmethod
-    def __init__(): ...
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
-# Recurrent approach
-class RecurrentCalciumDataset(_Abstract_CalciumDataset):
-    def __init__(self, traces: np.ndarray, seq_len: int = 50, pred_steps: int = 1):
-        X, y = [], []
-        for t in range(len(traces) - seq_len - pred_steps + 1):
-            X.append(traces[t : t + seq_len])
-            y.append(traces[t + seq_len : t + seq_len + pred_steps])
-
-        self.X = torch.tensor(np.array(X))
-        self.y = torch.tensor(np.array(y))
-
 # sliding-window approach
-class CalciumDataset(_Abstract_CalciumDataset):
-    def __init__(self, traces: np.ndarray, seq_len: int, pred_len: int):
-        context_len = seq_len - pred_len
+class CalciumDataset():
+    def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
+        seq_len = context_len + pred_len
         X, Y = [], []
         for t in range(len(traces) - seq_len + 1):
             X.append(traces[t : t + context_len])
@@ -45,23 +26,27 @@ class CalciumDataset(_Abstract_CalciumDataset):
         self.X = torch.tensor(np.array(X))   # (S, context_len, N)
         self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)
 
+    def __len__(self):  return len(self.X)
+    def __getitem__(self, i): return self.X[i], self.Y[i]
+
+
 def collate_fn(batch):
     X = torch.stack([b[0] for b in batch], dim=1)   # (context_len, B, N)
     Y = torch.stack([b[1] for b in batch], dim=1)   # (pred_len,    B, N)
     return X, Y
 
-_DATASET_CACHE: Dict[str, Tuple[_Abstract_CalciumDataset, Dict]] = {
-    "TSMixer":(CalciumDataset, {"collate_fn":collate_fn}),
-    "TexFilter":(CalciumDataset, {"collate_fn":collate_fn}),
-    "RNN":(RecurrentCalciumDataset, {}),
-    "NLinear":(CalciumDataset ,{}),
-    "LSTM":(RecurrentCalciumDataset, {}),
-    "DLinear":(CalciumDataset, {}),
-    "AR":(..., {}),
+_DATASET_CACHE: Dict[str, Dict] = {
+    "TSMixer":{"collate_fn":collate_fn},
+    "TexFilter":{"collate_fn":collate_fn},
+    "RNN":{},
+    "NLinear":{},
+    "LSTM":{},
+    "DLinear":{},
+    "AR":{},
 }
 
 def fetch_data_loaders(model_type:str,
-                seq_length: int = 64,
+                context_length: int = 48,
                 pred_length: int = 16,
                 train_frac: float = 0.6,
                 val_frac: float   = 0.2,
@@ -96,10 +81,10 @@ def fetch_data_loaders(model_type:str,
     train_end = int(T * train_frac)
     val_end   = int(T * (train_frac + val_frac))
 
-    Dataset_obj, args = _DATASET_CACHE[model_type]
+    args = _DATASET_CACHE[model_type]
 
-    train_ds = Dataset_obj(traces[:train_end],         seq_length, pred_length)
-    val_ds   = Dataset_obj(traces[train_end:val_end],  seq_length, pred_length)
+    train_ds = CalciumDataset(traces[:train_end],         context_length, pred_length)
+    val_ds   = CalciumDataset(traces[train_end:val_end],  context_length, pred_length)
 
     print(f"Train windows: {len(train_ds)}  |  Val windows: {len(val_ds)}")
     
@@ -112,33 +97,3 @@ def fetch_data_loaders(model_type:str,
     val_loader   = DataLoader(**val_args)
     return train_loader, val_loader, n_neurons
 
-# ---------------------------------------------------------------------------
-# Training / evaluation helpers
-# ---------------------------------------------------------------------------
-
-def train_epoch(model, loader, optimiser, device):
-    model.train()
-    total = 0.0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        optimiser.zero_grad()
-        pred = model([X])[0]             # (pred_len, B, N)
-        loss = F.mse_loss(pred, Y)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimiser.step()
-        total += loss.item() * X.shape[1]
-    return total / len(loader.dataset)
-
-
-@torch.no_grad()
-def eval_epoch(model, loader, device):
-    model.eval()
-    total_mse, total_mae, n = 0.0, 0.0, 0
-    for X, Y in loader:
-        X, Y  = X.to(device), Y.to(device)
-        pred  = model([X])[0]
-        total_mse += F.mse_loss(pred, Y).item() * X.shape[1]
-        total_mae += (pred - Y).abs().mean().item() * X.shape[1]
-        n += X.shape[1]
-    return total_mse / n, total_mae / n

@@ -25,29 +25,8 @@ from torch.distributions import Normal
 from torch.utils.data import Dataset, DataLoader
 
 from metrics import Prediction, NllLoss, MAELoss, MetricSuite, Score
-
-# ---------------------------------------------------------------------------
-# Dataset  (identical to POCO_prob.py)
-# ---------------------------------------------------------------------------
-
-class CalciumDataset(Dataset):
-    def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
-
-        seq_len = context_len + pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-
-        # Convert numpy array to torch tensor
-        self.X = torch.tensor(np.array(X))   # (S, context_len, N)
-        self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)
-
-    def __len__(self):  
-        return len(self.X)
-    
-    def __getitem__(self, i): 
-        return self.X[i], self.Y[i]
+from trainer import train_epoch, eval_epoch
+from util import CalciumDataset
 
 # ---------------------------------------------------------------------------
 # Model
@@ -80,66 +59,23 @@ class MLPHead(nn.Module):
         nn.init.constant_(self.log_sig_proj.bias, -0.69)
         nn.init.zeros_(self.log_sig_proj.weight)
 
-    def forward(self, x_list: torch.Tensor) -> list[Normal]:
+    def forward(self, x: torch.Tensor) -> list[Normal]:
         """
         Args:
-            x_list: list with one tensor of shape (context_len, B, N)
+            x_list: list with one tensor of shape (B,context_len,N)
         Returns:
-            list with one Normal distribution; mu/sigma shape (pred_len, B, N)
+            list with one Normal distribution; mu/sigma shape (B,pred_len,N)
         """
-        x = x_list.permute(1, 2, 0) # Reorders dimensions to (B, N, context_len)
+        x = x.permute(0, 2, 1) # Reorders dimensions to (B, N, context_len)
         h = self.in_proj(x) # (B, N, cond_dim)
 
         mu      = self.mu_proj(h)                                  # (B, N, pred_len)
         log_sig = self.log_sig_proj(h).clamp(self.LOG_SIG_MIN, self.LOG_SIG_MAX)
         sigma   = F.softplus(log_sig) + 1e-4
 
-        mu    = mu.permute(2, 0, 1)                                # (pred_len, B, N)
-        sigma = sigma.permute(2, 0, 1)
+        mu    = mu.permute(0, 2, 1)                                # (B,pred_len,N)
+        sigma = sigma.permute(0, 2, 1)                             # (B,pred_len,N)
         return Prediction(mean=mu, sigma=sigma)
-
-
-
-# ---------------------------------------------------------------------------
-# Training / evaluation  (identical to POCO_prob.py)
-# ---------------------------------------------------------------------------
-
-def train_epoch(model, loader, criterion, optimizer, device):
-    model.train()
-    score = Score.create(criterion)
-    total = 0.0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        x_list = X.permute(1, 0, 2)
-        y_list = Y.permute(1, 0, 2)
-
-        optimizer.zero_grad()
-        dists = model(x_list)
-        loss, scores  = criterion(dists, y_list)
-        score.update(scores)
-        print(score)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimizer.step()
-        total += loss.item() * len(X)
-    return total / len(loader.dataset)
-
-
-@torch.no_grad()
-def eval_epoch(model, loader, criterion, device):
-    model.eval()
-    total_nll, total_mae, n = 0.0, 0.0, 0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        x_list = X.permute(1, 0, 2)
-        y_list = Y.permute(1, 0, 2)
-
-        dists = model(x_list)
-        loss, _ = criterion(dists, y_list)
-        total_nll += loss.item() * len(X)
-        n += len(X)
-    return total_nll / n
-
 
 # ---------------------------------------------------------------------------
 # Entry point
