@@ -17,12 +17,15 @@ so any performance gap is attributable solely to the POYO encoder.
 """
 
 import os
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
 from torch.utils.data import Dataset, DataLoader
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from src.train_utils import gaussian_nll_loss
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +34,7 @@ from torch.utils.data import Dataset, DataLoader
 
 class CalciumDataset(Dataset):
     def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
-
+        traces = traces.astype(np.float32)
         seq_len = context_len + pred_len
         X, Y = [], []
         for t in range(len(traces) - seq_len + 1):
@@ -50,16 +53,6 @@ class CalciumDataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
-# Loss  (identical to POCO_prob.py)
-# ---------------------------------------------------------------------------
-
-def nll_loss(dists: list[Normal], targets: list[torch.Tensor]) -> torch.Tensor:
-    """Mean Gaussian NLL across all sessions."""
-    total = sum(-dist.log_prob(y).mean() for dist, y in zip(dists, targets))
-    return total / len(dists)
-
-
-# ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
 
@@ -69,16 +62,15 @@ class MLPHead(nn.Module):
     POYO encoder.
 
     Each neuron's context window is projected independently:
-        x (B, N, context_len) → in_proj → h (B, N, cond_dim)
-            → mu_proj      → mu      (B, N, pred_len)
-            → log_sig_proj → log_sig (B, N, pred_len)
+        x (B, context_len, N) → in_proj → weights (B, N, cond_dim)
+            → mu_proj      → mu      (B, pred_len, N)
+            → log_sig_proj → logvar  (B, pred_len, N)
 
-    Accepts x_list in POCO's (L, B, D) format and returns a list of
-    Normal distributions with event shape (pred_len, B, N).
+    Note: no FiLM conditioning — weights = in_proj(inp) only, no alpha/beta.
     """
 
-    LOG_SIG_MIN = -6.0
-    LOG_SIG_MAX =  2.0
+    LOG_SIG_MIN = -6.0   # clamp raw log_sig to avoid underflow
+    LOG_SIG_MAX =  2.0   # clamp raw log_sig to avoid instability
 
     def __init__(self, n_neurons: int, context_len: int, cond_dim: int, pred_len: int):
         super().__init__()
@@ -90,41 +82,37 @@ class MLPHead(nn.Module):
         nn.init.constant_(self.log_sig_proj.bias, -0.69)
         nn.init.zeros_(self.log_sig_proj.weight)
 
-    def forward(self, x_list: list[torch.Tensor]) -> list[Normal]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
-            x_list: list with one tensor of shape (context_len, B, N)
+            x: (B, context_len, N)
         Returns:
-            list with one Normal distribution; mu/sigma shape (pred_len, B, N)
+            mu:     (B, pred_len, N)
+            logvar: (B, pred_len, N)
         """
-        x = x_list[0] # (context_len, B, N)
-        x = x.permute(1, 2, 0) # Reorders dimensions to (B, N, context_len)
-        h = self.in_proj(x) # (B, N, cond_dim) <- note no FILM conditioning at all here 
-
-        mu      = self.mu_proj(h)                                  # (B, N, pred_len)
-        log_sig = self.log_sig_proj(h).clamp(self.LOG_SIG_MIN, self.LOG_SIG_MAX)
+        inp     = x.transpose(1, 2)                                        # (B, N, context_len)
+        weights = self.in_proj(inp)                                        # (B, N, cond_dim) — no FiLM conditioning
+        mu      = self.mu_proj(weights)                                    # (B, N, pred_len)
+        log_sig = self.log_sig_proj(weights).clamp(self.LOG_SIG_MIN, self.LOG_SIG_MAX)
         sigma   = F.softplus(log_sig) + 1e-4
 
-        mu    = mu.permute(2, 0, 1)                                # (pred_len, B, N)
-        sigma = sigma.permute(2, 0, 1)
-        return [Normal(mu, sigma)]
+        mu     = mu.transpose(1, 2)                                        # (B, pred_len, N)
+        logvar = (2 * sigma.log()).transpose(1, 2)                         # (B, pred_len, N)
+        return mu, logvar
 
 
 # ---------------------------------------------------------------------------
-# Training / evaluation  (identical to POCO_prob.py)
+# Training / evaluation
 # ---------------------------------------------------------------------------
 
 def train_epoch(model, loader, optimizer, device):
     model.train()
     total = 0.0
     for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
-
+        X, Y = X.to(device), Y.to(device)   # (B, context_len, N), (B, pred_len, N)
         optimizer.zero_grad()
-        dists = model(x_list)
-        loss  = nll_loss(dists, y_list)
+        mean, logvar = model(X)
+        loss = gaussian_nll_loss(mean, logvar, Y)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
@@ -138,15 +126,9 @@ def eval_epoch(model, loader, device):
     total_nll, total_mae, n = 0.0, 0.0, 0
     for X, Y in loader:
         X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
-
-        dists = model(x_list)
-        total_nll += nll_loss(dists, y_list).item() * len(X)
-        total_mae += sum(
-            (dist.mean - y).abs().mean().item() * len(X)
-            for dist, y in zip(dists, y_list)
-        ) / len(dists)
+        mean, logvar = model(X)
+        total_nll += gaussian_nll_loss(mean, logvar, Y).item() * len(X)
+        total_mae += (mean - Y).abs().mean().item() * len(X)
         n += len(X)
     return total_nll / n, total_mae / n
 
