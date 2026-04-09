@@ -24,6 +24,7 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.utils.data import Dataset, DataLoader
 
+from metrics import Prediction, NllLoss, MAELoss, MetricSuite, Score
 
 # ---------------------------------------------------------------------------
 # Dataset  (identical to POCO_prob.py)
@@ -47,17 +48,6 @@ class CalciumDataset(Dataset):
     
     def __getitem__(self, i): 
         return self.X[i], self.Y[i]
-
-
-# ---------------------------------------------------------------------------
-# Loss  (identical to POCO_prob.py)
-# ---------------------------------------------------------------------------
-
-def nll_loss(dists: list[Normal], targets: list[torch.Tensor]) -> torch.Tensor:
-    """Mean Gaussian NLL across all sessions."""
-    total = sum(-dist.log_prob(y).mean() for dist, y in zip(dists, targets))
-    return total / len(dists)
-
 
 # ---------------------------------------------------------------------------
 # Model
@@ -90,15 +80,14 @@ class MLPHead(nn.Module):
         nn.init.constant_(self.log_sig_proj.bias, -0.69)
         nn.init.zeros_(self.log_sig_proj.weight)
 
-    def forward(self, x_list: list[torch.Tensor]) -> list[Normal]:
+    def forward(self, x_list: torch.Tensor) -> list[Normal]:
         """
         Args:
             x_list: list with one tensor of shape (context_len, B, N)
         Returns:
             list with one Normal distribution; mu/sigma shape (pred_len, B, N)
         """
-        x = x_list[0] # (context_len, B, N)
-        x = x.permute(1, 2, 0) # Reorders dimensions to (B, N, context_len)
+        x = x_list.permute(1, 2, 0) # Reorders dimensions to (B, N, context_len)
         h = self.in_proj(x) # (B, N, cond_dim)
 
         mu      = self.mu_proj(h)                                  # (B, N, pred_len)
@@ -107,24 +96,28 @@ class MLPHead(nn.Module):
 
         mu    = mu.permute(2, 0, 1)                                # (pred_len, B, N)
         sigma = sigma.permute(2, 0, 1)
-        return [Normal(mu, sigma)]
+        return Prediction(mean=mu, sigma=sigma)
+
 
 
 # ---------------------------------------------------------------------------
 # Training / evaluation  (identical to POCO_prob.py)
 # ---------------------------------------------------------------------------
 
-def train_epoch(model, loader, optimizer, device):
+def train_epoch(model, loader, criterion, optimizer, device):
     model.train()
+    score = Score.create(criterion)
     total = 0.0
     for X, Y in loader:
         X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
+        x_list = X.permute(1, 0, 2)
+        y_list = Y.permute(1, 0, 2)
 
         optimizer.zero_grad()
         dists = model(x_list)
-        loss  = nll_loss(dists, y_list)
+        loss, scores  = criterion(dists, y_list)
+        score.update(scores)
+        print(score)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
@@ -133,22 +126,19 @@ def train_epoch(model, loader, optimizer, device):
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, device):
+def eval_epoch(model, loader, criterion, device):
     model.eval()
     total_nll, total_mae, n = 0.0, 0.0, 0
     for X, Y in loader:
         X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
+        x_list = X.permute(1, 0, 2)
+        y_list = Y.permute(1, 0, 2)
 
         dists = model(x_list)
-        total_nll += nll_loss(dists, y_list).item() * len(X)
-        total_mae += sum(
-            (dist.mean - y).abs().mean().item() * len(X)
-            for dist, y in zip(dists, y_list)
-        ) / len(dists)
+        loss, _ = criterion(dists, y_list)
+        total_nll += loss.item() * len(X)
         n += len(X)
-    return total_nll / n, total_mae / n
+    return total_nll / n
 
 
 # ---------------------------------------------------------------------------
@@ -219,18 +209,18 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
+    criterion = MetricSuite([MAELoss()], primary=NllLoss())
 
-    train_nlls, val_nlls, val_maes = [], [], []
+    train_nlls, val_nlls = [], []
     best_nll   = float("inf")
     no_improve = 0
 
     for epoch in range(1, EPOCHS + 1):
-        train_nll        = train_epoch(model, train_loader, optimizer, device)
-        val_nll, val_mae = eval_epoch(model, val_loader, device)
+        train_nll = train_epoch(model, train_loader, criterion, optimizer, device)
+        val_nll = eval_epoch(model, val_loader, criterion, device)
         scheduler.step(val_nll)
         train_nlls.append(train_nll)
         val_nlls.append(val_nll)
-        val_maes.append(val_mae)
 
         tag = " *" if val_nll < best_nll else ""
         if val_nll < best_nll:
@@ -240,7 +230,7 @@ if __name__ == "__main__":
         else:
             no_improve += 1
 
-        print(f"Epoch {epoch:3d}/{EPOCHS}  train_nll={train_nll:.4f}  val_nll={val_nll:.4f}  val_mae={val_mae:.4f}{tag}")
+        print(f"Epoch {epoch:3d}/{EPOCHS}  train_nll={train_nll:.4f}  val_nll={val_nll:.4f}")
 
         if no_improve >= PATIENCE:
             print(f"Early stopping at epoch {epoch} (no improvement for {PATIENCE} epochs)")
@@ -249,9 +239,9 @@ if __name__ == "__main__":
     print(f"\nBest val NLL: {best_nll:.4f}  — weights saved to {MODEL_PATH}")
 
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
-    test_nll, test_mae = eval_epoch(model, test_loader, device)
+    test_nll, test_mae = eval_epoch(model, test_loader, criterion, device)
     print(f"Test  NLL: {test_nll:.4f}  |  Test MAE: {test_mae:.4f}")
 
-    np.savez(RESULTS_PATH, train_nlls=train_nlls, val_nlls=val_nlls, val_maes=val_maes,
+    np.savez(RESULTS_PATH, train_nlls=train_nlls, val_nlls=val_nlls,
              test_nll=test_nll, test_mae=test_mae)
     print(f"Loss history saved to {RESULTS_PATH}")
