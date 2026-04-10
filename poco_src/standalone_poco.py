@@ -373,6 +373,24 @@ def _padded_to_chained(x, seqlen):
     return torch.cat(parts, dim=0)
 
 
+# ---------------------------------------------------------------------------
+# POPULATION ENCODER — Perceiver-IO backbone (blue path, Figure 1A)
+#
+# PerceiverRotary implements the three-stage attention architecture:
+#   Stage 1 (enc_atn):  Cross-attention IN  — 8 latents attend to all input
+#                        tokens, compressing the whole population into a small
+#                        fixed-size representation.
+#   Stage 2 (proc_layers): Self-attention — latents attend to each other
+#                        (L=1 layer by default), learning relationships within
+#                        the compressed representation.
+#   Stage 3 (dec_atn):  Cross-attention OUT — each neuron's unit embedding
+#                        queries the processed latents to extract that neuron's
+#                        specific conditioning information (γ and β).
+#
+# Rotary position encoding (RoPE) is used in all attention layers so the
+# model attends based on relative timing between tokens. Latent tokens are
+# assigned evenly spaced timestamps across the context window.
+# ---------------------------------------------------------------------------
 class PerceiverRotary(nn.Module):
     def __init__(
         self,
@@ -395,7 +413,7 @@ class PerceiverRotary(nn.Module):
 
         self.dropout = nn.Dropout(p=lin_dropout)
 
-        # Encoding transformer (q-latent, kv-input spikes)
+        # Stage 1: Cross-attention IN — 8 latents attend to all input tokens
         self.enc_atn = RotaryCrossAttention(
             dim=dim,
             context_dim=context_dim,
@@ -409,7 +427,7 @@ class PerceiverRotary(nn.Module):
             nn.LayerNorm(dim), FeedForward(dim=dim, dropout=ffn_dropout)
         )
 
-        # Processing transfomers (qkv-latent)
+        # Stage 2: Self-attention — latents attend to each other (depth=L layers)
         self.proc_layers = nn.ModuleList([])
         for i in range(depth):
             self.proc_layers.append(
@@ -431,6 +449,8 @@ class PerceiverRotary(nn.Module):
                 )
             )
 
+        # Stage 3: Cross-attention OUT — each neuron's unit embedding queries the
+        # processed latents to extract that neuron's specific conditioning info (γ/β)
         self.dec_atn = RotaryCrossAttention(
             dim=dim,
             heads=cross_heads,
@@ -601,9 +621,21 @@ class POYO(nn.Module):
     ):
         super().__init__()
 
+        # Tokenization: linearly projects each T_step-length segment into d=128 dims
+        # E(i,k) = W · x_segment + b + UnitEmbed(i,j) + SessionEmbed(j)
         self.input_proj = nn.Linear(input_dim, dim)
+
+        # UnitEmbed(i,j) — learnable vector identifying which neuron each token belongs to.
+        # The same embedding is reused as the output query (Stage 3), forcing the model to
+        # learn a single coherent representation of each neuron's functional identity.
         self.unit_emb = Embedding(sum(input_size), dim, init_scale=emb_init_scale)
+
+        # SessionEmbed(j) — learnable vector identifying the recording session
         self.session_emb = Embedding(len(input_size), dim, init_scale=emb_init_scale)
+
+        # 8 learnable latent vectors — the population bottleneck.
+        # Because everything passes through this fixed-size set, computation scales
+        # linearly with neuron count rather than quadratically.
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
         self.dataset_emb = Embedding(num_datasets, dim, init_scale=emb_init_scale)
 
@@ -721,6 +753,8 @@ class POCO(nn.Module):
         self.input_size = input_size
         self.pred_step = config.pred_length
 
+        # POPULATION ENCODER (blue path, Figure 1A)
+        # POYO Perceiver-IO that encodes the whole population into per-neuron embeddings
         assert config.decoder_type == 'POYO'
         self.decoder = POYO(
             input_dim=self.token_dim, 
@@ -743,18 +777,22 @@ class POCO(nn.Module):
         self.conditioning = config.conditioning
         self.conditioning_dim = config.conditioning_dim
 
+        # MLP FORECASTER (orange path, Figure 1A)
+        # W_in: maps C=48 timesteps → M=1024 hidden features, shared across all neurons
         assert config.conditioning == 'mlp'
         self.in_proj = nn.Sequential(nn.Linear(self.Tin, config.conditioning_dim), nn.ReLU())
-        
-        self.conditioning_alpha = nn.Linear(self.embedding_dim, config.conditioning_dim)
-        self.conditioning_beta = nn.Linear(self.embedding_dim, config.conditioning_dim)
-        
-        # init as zeros
+
+        # FiLM CONDITIONING — γ (scale) and β (shift) projected from population embedding
+        # Zero-initialised so POCO starts as a plain MLP; conditioning learns gradually
+        self.conditioning_alpha = nn.Linear(self.embedding_dim, config.conditioning_dim)  # γ
+        self.conditioning_beta = nn.Linear(self.embedding_dim, config.conditioning_dim)   # β
+
         self.conditioning_alpha.weight.data.zero_()
         self.conditioning_alpha.bias.data.zero_()
         self.conditioning_beta.weight.data.zero_()
         self.conditioning_beta.bias.data.zero_()
 
+        # W_out: maps M=1024 hidden features → P=16 predicted timesteps
         self.out_proj = nn.Linear(config.conditioning_dim, self.linear_out_size)
 
         if config.decoder_context_length is not None:
@@ -784,20 +822,21 @@ class POCO(nn.Module):
 
         bsz = [x.size(1) for x in x_list]
         L = x_list[0].size(0)
-        pred_step = self.pred_step
+        pred_step = self.pred_step # Potentially redundant?? 
         x = torch.concatenate([x.permute(1, 2, 0).reshape(-1, L) for x in x_list], dim=0) # sum(B * D), L
 
-        # only use the last Tin steps
+        # only use the last Tin steps (case if the the sequence passed is longer than 48 timesteps)
         if L != self.Tin:
             x = x[:, -self.Tin: ]
 
-        # Tokenize the input sequence
-        if self.tokenizer_type == 'vqvae':
+        # Tokenize step: reshape (B*D, Tin) → (B*D, TC, T_step)
+        # Each neuron's C=48 timestep trace is split into TC=3 tokens of length T_step=16
+        if self.tokenizer_type == 'vqvae': # Dead code - originally intended as a separate vector quantised variational autoencoder tokenizer? 
             with torch.no_grad():
                 out = self.tokenizer.encode(x) # out: sum(B * D), TC, E
         elif self.tokenizer_type == 'cnn':
             out = x.unsqueeze(1)
-            out = self.tokenizer(out) # out: sum(B * D), C, TC
+            out = self.tokenizer(out) # out: sum(B * D), C, TC; self.tokenizer defined as none in init so this branch will break too
             out = out.permute(0, 2, 1) # out: sum(B * D), TC, C
         elif self.tokenizer_type == 'none':
             out = x.reshape(x.shape[0], self.Tin // self.T_step, self.T_step) # out: sum(B * D), TC, E
@@ -805,6 +844,7 @@ class POCO(nn.Module):
             raise ValueError(f"Unknown tokenizer type {self.tokenizer_type}")
         d_list = self.input_size
 
+        # Building metadata for each token which is used by POYO
         if unit_indices is None:
             sum_channels = 0
             unit_indices = []
@@ -823,6 +863,7 @@ class POCO(nn.Module):
         dataset_index = torch.cat([torch.full((b, ), self.dataset_idx[i], device=x.device)
                                         for i, b in enumerate(bsz)], dim=0)
 
+        # POPULATION ENCODER: run POYO to get per-neuron embedding (B, D, embedding_dim)
         embed = self.decoder(
             out,
             unit_indices=unit_indices,
@@ -830,20 +871,22 @@ class POCO(nn.Module):
             input_seqlen=input_seqlen,
             session_index=session_index,
             dataset_index=dataset_index,
-        ) # sum(B * D), embedding_dim; or sum(B * D), pred_length, embedding_dim
+        ) # sum(B * D), embedding_dim
 
-        # partition embed to a list of tensors, each of shape (B, D, embedding_dim)
+        # Reshape flat output back to (B, D, embedding_dim) — one vector per neuron
         split_size = [b * d for b, d in zip(bsz, d_list)]
         embed = torch.split(embed, split_size, dim=0)
         embed = [xx.reshape(b, d, self.embedding_dim) for xx, b, d in zip(embed, bsz, d_list)] # (B, D, E)
 
         preds = []
         for i, (e, d, input) in enumerate(zip(embed, self.input_size, x_list)):
-            alpha = self.conditioning_alpha(e) # B, D, cond_dim
-            beta = self.conditioning_beta(e) # B, D, cond_dim
-            input = input.permute(1, 2, 0) # B, D, L
-            weights = self.in_proj(input) * alpha + beta # B, D, cond_dim
-            pred = self.out_proj(weights) # B, D, pred_length
+            # FiLM CONDITIONING — where the two paths meet (Figure 1A)
+            # output = W_out · [ReLU(W_in · x) ⊙ γ + β] + b_out
+            alpha = self.conditioning_alpha(e)          # γ: B, D, cond_dim
+            beta  = self.conditioning_beta(e)           # β: B, D, cond_dim
+            input = input.permute(1, 2, 0)              # B, D, L
+            weights = self.in_proj(input) * alpha + beta  # FiLM modulation: B, D, cond_dim
+            pred = self.out_proj(weights)               # B, D, pred_length
             preds.append(pred.permute(2, 0, 1))
 
         return preds
