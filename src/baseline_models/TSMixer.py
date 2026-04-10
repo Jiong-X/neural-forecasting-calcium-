@@ -23,7 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from util import fetch_data_loaders
+from src.util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model — self-contained TSMixer (no external dependencies)

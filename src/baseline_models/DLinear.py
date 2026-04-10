@@ -1,62 +1,93 @@
 """
-NLinear — Normalisation-Linear baseline for neural activity forecasting.
+DLinear — Decomposition-Linear baseline for neural activity forecasting.
 
 Architecture:
-  1. Subtract the last observed value (removes level shift / non-stationarity)
-  2. Apply a single shared linear layer: context_len → pred_len  (per neuron)
-  3. Add the last observed value back
+  1. Decompose each neuron's context window into:
+       - Trend    : moving-average filter (kernel = context_len//4 * 2 + 1)
+       - Seasonal : residual  (original - trend)
+  2. Apply a separate linear layer (context_len → pred_len) to each component
+  3. Sum the two outputs to produce the forecast
 
-This is the simplest possible learned forecaster — one scalar weight per
-(context step, forecast step) pair, shared across all neurons.
+Compared to NLinear, DLinear explicitly separates slow drift (trend) from
+fast oscillations (seasonal) — both present in calcium imaging traces.
 
 Reference: Zeng et al. (2023) "Are Transformers Effective for Time Series
            Forecasting?" AAAI 2023.
 
 Run with:
-  /home/jiongx/micromamba/envs/comp0197-pt/bin/python3 NLinear.py
+  /home/jiongx/micromamba/envs/comp0197-pt/bin/python3 DLinear.py
 """
 
 import os
 import numpy as np
 import torch
 import torch.nn as nn
-from util import fetch_data_loaders
+from src.util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
-# Model — self-contained NLinear (no external dependencies)
+# Model — self-contained DLinear (no external dependencies)
 # ---------------------------------------------------------------------------
 
-class NLinear(nn.Module):
+class _MovingAvg(nn.Module):
+    def __init__(self, kernel_size: int):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=1, padding=0)
+
+    def forward(self, x):           # x: (B, L, N)
+        pad = self.kernel_size // 2
+        front = x[:, :1, :].repeat(1, pad, 1)
+        end   = x[:, -1:, :].repeat(1, pad, 1)
+        x = torch.cat([front, x, end], dim=1)
+        return self.avg(x.permute(0, 2, 1)).permute(0, 2, 1)
+
+
+class DLinear(nn.Module):
     """
-    Normalisation-Linear (Zeng et al. 2023).
-    Subtracts the last observed value, applies a shared linear
-    projection context_len → pred_len, then adds the last value back.
+    Decomposition-Linear (Zeng et al. 2023).
+    Splits the context into trend (moving average) + seasonal (residual),
+    applies separate linear projections, sums the outputs.
     Input/output: (L, B, N)
     """
     def __init__(self, context_len: int, pred_len: int, n_channels: int,
                  individual: bool = False):
         super().__init__()
+        kernel = context_len // 4 * 2 + 1
+        self.decomp     = _MovingAvg(kernel)
         self.pred_len   = pred_len
         self.individual = individual
         self.channels   = n_channels
+
+        init_w = (1 / context_len) * torch.ones(pred_len, context_len)
         if individual:
-            self.linear = nn.ModuleList(
-                [nn.Linear(context_len, pred_len) for _ in range(n_channels)])
+            self.lin_s = nn.ModuleList([nn.Linear(context_len, pred_len)
+                                        for _ in range(n_channels)])
+            self.lin_t = nn.ModuleList([nn.Linear(context_len, pred_len)
+                                        for _ in range(n_channels)])
+            for l in self.lin_s + self.lin_t:
+                l.weight = nn.Parameter(init_w.clone())
         else:
-            self.linear = nn.Linear(context_len, pred_len)
+            self.lin_s = nn.Linear(context_len, pred_len)
+            self.lin_t = nn.Linear(context_len, pred_len)
+            self.lin_s.weight = nn.Parameter(init_w.clone())
+            self.lin_t.weight = nn.Parameter(init_w.clone())
 
     def forward(self, x):           # x: (L, B, N)
         x = x.permute(1, 0, 2)     # → (B, L, N)
-        last = x[:, -1:, :].detach()
-        x = x - last
+        trend    = self.decomp(x)
+        seasonal = x - trend
         if self.individual:
-            out = torch.stack(
-                [self.linear[i](x[:, :, i]) for i in range(self.channels)],
-                dim=-1)             # (B, pred_len, N)
+            s_out = torch.stack([self.lin_s[i](seasonal[:, :, i])
+                                 for i in range(self.channels)], dim=-1)
+            t_out = torch.stack([self.lin_t[i](trend[:, :, i])
+                                 for i in range(self.channels)], dim=-1)
         else:
-            out = self.linear(x.permute(0, 2, 1)).permute(0, 2, 1)
-        out = out + last
-        return out.permute(1, 0, 2)  # → (pred_len, B, N)
+            s_out = self.lin_s(seasonal.permute(0, 2, 1)).permute(0, 2, 1)
+            t_out = self.lin_t(trend.permute(0, 2, 1)).permute(0, 2, 1)
+        out = s_out + t_out         # (B, pred_len, N)
+        return out.permute(1, 0, 2) # → (pred_len, B, N)
+
+
 
 # ---------------------------------------------------------------------------
 # Training / evaluation
@@ -99,8 +130,8 @@ if __name__ == "__main__":
     np.random.seed(42)
 
     DATA_PATH    = "data/processed/0.npz"
-    MODEL_PATH   = "models/best_nlinear.pt"
-    RESULTS_PATH = "results/nlinear_losses.npz"
+    MODEL_PATH   = "models/best_dlinear.pt"
+    RESULTS_PATH = "results/dlinear_losses.npz"
     os.makedirs("models",  exist_ok=True)
     os.makedirs("results", exist_ok=True)
 
@@ -119,11 +150,10 @@ if __name__ == "__main__":
     # --- Data ---
     CONTEXT_LEN  = SEQ_LEN - PRED_LEN
 
-    train_loader, val_loader, N = fetch_data_loaders("NLinear",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
-    
+    train_loader, val_loader, N = fetch_data_loaders("DLinear",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
     
     # --- Model ---
-    model = NLinear(CONTEXT_LEN, PRED_LEN, N, individual=False).to(device)
+    model = DLinear(CONTEXT_LEN, PRED_LEN, N, individual=False).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {n_params:,}")
 

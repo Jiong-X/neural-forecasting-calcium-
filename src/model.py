@@ -42,6 +42,8 @@ class ProbabilisticForecaster(nn.Module):
         logvar : (B, pred_len, N)  — predicted log-variance (aleatoric uncertainty)
     """
 
+    name:str = "ProbabilisticPOCO"
+
     def __init__(self,
                  seq_length:  int = 64,
                  pred_length: int = 16,

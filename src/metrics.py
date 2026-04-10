@@ -55,7 +55,7 @@ class _MetricBase(ABC):
 class Score:
     total: int = 0
     criterion: _MetricBase = None
-    _scores: dict[str, Optional[float]] = field(default_factory=dict)
+    scores: dict[str, Optional[float]] = field(default_factory=dict)
 
     def update(self, kwargs) -> None:
 
@@ -64,23 +64,31 @@ class Score:
         for key, value in kwargs.items():
             if value is None:
                 continue
-            self._scores[key] += (value * total)
+            self.scores[key] += (value * total)
 
-    def get_scores(self) -> dict[str, Optional[float]]:
-        return self._normalise()
-    
-    def _normalise(self) -> 'Score':
-        normalised_scores = {"total":1}
-        if self.total is not None and self.total > 0:
-            for key in self._scores.keys():
-                value = self._scores.get(key, None)
-                if value is not None:
-                    normalised_scores[key] = value / self.total
-        
+    def get_scores(self) -> 'Score':
+        """
+        normalise scores over total training and return cleaned Score instance
+        """
+        normalised_scores = self._normalise()
+        normalised_scores["total"] = 1
         ret_instance = self.create(self.criterion)
         ret_instance.update(normalised_scores)
         return ret_instance
-
+    
+    def _normalise(self) -> dict[str, Optional[float]]:
+        """
+        normalise scores, return dictionary of normalised scores
+        """
+        normalised_scores = {}
+        if self.total is not None and self.total > 0:
+            for key in self.scores.keys():
+                value = self.scores.get(key, None)
+                if value is not None:
+                    normalised_scores[key] = value / self.total
+        
+        return normalised_scores
+    
     @classmethod
     def create(cls, criterion:_MetricBase) -> 'Score':
         """class factory method to create a Scores instance from a _MetricBase object
@@ -88,7 +96,7 @@ class Score:
         """
         instance = cls(criterion=criterion)
         for name in criterion._get_names():
-            instance._scores[name] = 0.0
+            instance.scores[name] = 0.0
         return instance
 
     def __str__(self) -> str:
@@ -99,12 +107,40 @@ class Score:
         precision = 3
 
         parts = []
-        for name, value in self._scores.items():
+        for name, value in self.scores.items():
             parts.append(
                 f"{name:<{name_width}} : {value:>{value_width}.{precision}f}"
             )
         
         return " | ".join(parts)
+    
+@dataclass
+class ScoreTracker:
+    
+    criterion: _MetricBase
+    epoch_counter: int = field(default=0)
+    scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
+
+    @classmethod
+    def create(cls, criterion:_MetricBase) -> 'Score':
+        """class factory method to create a Scores instance from a _MetricBase object
+        allows correct tracking of metrics, as well as hooking onto derived metrics i.e. RMSE"
+        """
+        instance = cls(criterion=criterion)
+        for name in criterion._get_names():
+            instance.scores[name] = []
+        return instance
+
+    def update(self, score:Score) -> None:
+        if score.total != 1: # normalise
+            score = score.get_scores()
+
+        for key, value in score.scores.items():
+            if value is None:
+                continue
+            self.scores[key][self.epoch_counter] = value
+
+        self.epoch_counter += 1
 
 class _CriterionBase(_MetricBase):
     name: str

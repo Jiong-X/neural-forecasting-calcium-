@@ -21,24 +21,23 @@ Outputs:
 """
 
 import os
-import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from src.dataset    import get_splits
+from src.model      import ProbabilisticForecaster
+from src.train_utils import train_one_epoch, validate, compute_mae
+
+
 # ── Reproducibility ───────────────────────────────────────────────────────────
 SEED = 42
-random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True   # force deterministic CUDA kernels
 torch.backends.cudnn.benchmark     = False  # disable auto-tuner (picks same algo each run)
-
-from src.dataset    import get_splits
-from src.model      import ProbabilisticForecaster
-from src.train_utils import train_one_epoch, validate, compute_mae
 
 # ---------------------------------------------------------------------------
 # Config — matching POCO paper defaults

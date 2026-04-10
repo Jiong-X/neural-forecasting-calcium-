@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from util import fetch_data_loaders
+from src.util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # RevIN  (copied verbatim from POCO/models/layers/normalizer.py)

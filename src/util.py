@@ -1,15 +1,15 @@
+from dataclasses import dataclass, field
 import sys
 import os
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.dataset import _load_traces
 
-from typing import Dict, Tuple
-from abc import abstractmethod, ABC
+from typing import Dict, Tuple, Union, Optional
 
 # ---------------------------------------------------------------------------
 # Dataset 
@@ -36,6 +36,7 @@ def collate_fn(batch):
     return X, Y
 
 _DATASET_CACHE: Dict[str, Dict] = {
+    "ProbabilisticPOCO":{},
     "TSMixer":{"collate_fn":collate_fn},
     "TexFilter":{"collate_fn":collate_fn},
     "RNN":{},
@@ -97,3 +98,39 @@ def fetch_data_loaders(model_type:str,
     val_loader   = DataLoader(**val_args)
     return train_loader, val_loader, n_neurons
 
+@dataclass
+class trainingConfig:
+    model_name: str = field()
+    seed: Union[int, None] = field(default=42)
+    device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")  
+    sequence_length: int = field(default=64)       # context (48) + horizon (16)
+    pred_length: int = field(default=16)       # prediction horizon
+
+    n_channels: int = field(default=128)      # top-128 principal components
+    batch_size: int = field(default=64)
+    epochs: int = field(default=50)
+
+    LR          = 3e-4     # AdamW learning rate (paper default)
+    WEIGHT_DECAY= 1e-4     # AdamW weight decay  (paper default)
+    PATIENCE    = 10       # early stopping patience (epochs)
+    SAVE_FOLDER   = field(default="models/saved")
+    RESULTS_FOLDER = field(default="results")
+
+    def __post_init__(self):
+        if self.model_name not in _DATASET_CACHE.keys():
+            raise ValueError(f"invalid model name '{self.model_name}', must be one of '{_DATASET_CACHE.keys()}'")
+        if type(self.seed) not in [int, type(None)]:
+            raise TypeError(f"seed must either be 'None' or an 'int', got: {self.seed}")
+
+    @property
+    def save_path(self) -> str:
+        if self.model_name == "ProbabilisticPOCO": # for backwards compatibility with old code, base model was stored under model.pt
+            return os.path.join(self.SAVE_FOLDER, f"model.pt") 
+        return os.path.join(self.SAVE_FOLDER, f"best_{self.model_name}.pt")
+
+    @property
+    def results_path(self) -> str:
+        if self.model_name == "ProbabilisticPOCO": # for backwards compatibility with old code, base model losses were stored under train_losses
+            return os.path.join(self.RESULTS_FOLDER, f"train_losses.npz")
+        return os.path.join(self.RESULTS_FOLDER, f"{self.model_name}_train_losses.npz")
+    

@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from util import fetch_data_loaders
+from src.util import fetch_data_loaders
 
 # ---------------------------------------------------------------------------
 # Model
