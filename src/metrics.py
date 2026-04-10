@@ -4,27 +4,24 @@ import re
 import torch
 import torch.nn as nn
 
-from torch.distributions import Normal
+from torch.distributions import Normal, StudentT
 from dataclasses import dataclass, field
 from typing import Optional, Any, Tuple
 from abc import ABC, abstractmethod
 
 @dataclass
 class Prediction:
-    mean: Optional[torch.Tensor] = None
-    sigma: Optional[torch.Tensor] = None # standard deviation
+    mean: Optional[torch.Tensor] = field(default=None)
+    sigma: Optional[torch.Tensor] = field(default=None) # standard deviation
+    df: Optional[torch.Tensor] = field(default=None) # degrees of freedom
 
     @property
-    def output_type(self) -> str:
-        cur_type = None
-        if self.mean is not None:  
-            if self.sigma is not None:
-                cur_type = "probabilistic"
-            else:
-                cur_type = "point"
-
-        return cur_type
-
+    def is_valid(self, requirements: list) -> bool:
+        for req in requirements:
+            if getattr(self, req) is None:
+                return False
+        return True
+    
     @property
     def variance(self) -> Optional[torch.Tensor]:
         if self.sigma is not None:
@@ -44,6 +41,10 @@ class _MetricBase(ABC):
         loss, score = self._hidden_call_(prediction=prediction, targets=targets)
         score["total"] = len(targets)
         return loss, score
+    
+    @property
+    @abstractmethod
+    def monitor_name(self) -> str: ...
 
     @abstractmethod
     def _hidden_call_(self, prediction:Prediction, targets:Any) -> Tuple[torch.tensor, dict[str, Optional[float]]]: ...
@@ -88,6 +89,9 @@ class Score:
                     normalised_scores[key] = value / self.total
         
         return normalised_scores
+
+    def get_metric(self, name: str) -> Optional[float]:
+        return self.scores.get(name, None)
     
     @classmethod
     def create(cls, criterion:_MetricBase) -> 'Score':
@@ -118,34 +122,110 @@ class Score:
 class ScoreTracker:
     
     criterion: _MetricBase
-    epoch_counter: int = field(default=0)
-    scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
+    val_scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
+    train_scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
+    epoch_width: int = field(init=False)
+    metric_widths: dict[str, int] = field(init=False)
+    metric_names: list[str] = field(init=False)
 
     @classmethod
-    def create(cls, criterion:_MetricBase) -> 'Score':
+    def create(cls, criterion:_MetricBase) -> 'ScoreTracker':
         """class factory method to create a Scores instance from a _MetricBase object
         allows correct tracking of metrics, as well as hooking onto derived metrics i.e. RMSE"
         """
         instance = cls(criterion=criterion)
-        for name in criterion._get_names():
-            instance.scores[name] = []
+        instance.metric_names = criterion._get_names()
+        for name in instance.metric_names:
+            instance.val_scores[name] = []
+            instance.train_scores[name] = []
+        
+        instance.epoch_width, instance.metric_widths = instance._column_specs()
         return instance
 
-    def update(self, score:Score) -> None:
+    def update(self, score:Score, flag:str) -> None:
+
+        train_flags = ("train", "training")
+        val_flags = ("val", "validation", "eval", "evaluation")
+
+        if flag.lower() in train_flags:
+            target_scores = self.train_scores
+        elif flag.lower() in val_flags:
+            target_scores = self.val_scores
+        else:
+            raise ValueError(f"Invalid flag '{flag.lower()}' for ScoreTracker.update, must be one of {train_flags + val_flags}")
+
         if score.total != 1: # normalise
             score = score.get_scores()
 
         for key, value in score.scores.items():
             if value is None:
                 continue
-            self.scores[key][self.epoch_counter] = value
+            target_scores[key].append(value)
 
-        self.epoch_counter += 1
+    def _column_specs(self) -> tuple[int, dict[str, int]]:
+        """
+        Return:
+            epoch_width: width of epoch column
+            metric_widths: width for each metric column, keyed by metric name
+
+        Width is chosen to fit both:
+        - the headline label, e.g. 'Train NLL'
+        - the printed numeric value, e.g. '123.4567' or 'n/a'
+        """
+        epoch_width = max(len("Epoch"), 5)
+
+        metric_widths = {}
+        for name in self._metric_names():
+            header_train = f"Train {name}"
+            header_val = f"Val {name}"
+
+            # room for typical printed numeric values
+            # e.g. '-123.4567' is length 9
+            numeric_width = 10
+            metric_widths[name] = max(len(header_train), len(header_val), numeric_width)
+
+        return epoch_width, metric_widths
+
+    @staticmethod
+    def _format_value(value: Optional[float], width: int, precision: int = 4) -> str:
+        if value is None:
+            return f"{'n/a':>{width}}"
+        return f"{value:>{width}.{precision}f}"
+
+    def print_headline(self) -> None:
+        parts = [f"{'Epoch':>{self.epoch_width}}"]
+
+        for name in self._metric_names():
+            parts.append(f"{('Train ' + name):>{self.metric_widths[name]}}")
+
+        for name in self._metric_names():
+            parts.append(f"{('Val ' + name):>{self.metric_widths[name]}}")
+
+        line = " | ".join(parts)
+        print(line)
+        print("-" * len(line))
+
+    def print_latest(self, epoch: int, tag = "") -> None:
+        parts = [f"{epoch:>{self.epoch_width}d}"]
+
+        for name in self.metric_names:
+            parts.append(
+                self._format_value(self.train_scores[name][-1], self.metric_widths[name])
+            )
+
+        for name in self.metric_names:
+            parts.append(
+                self._format_value(self.val_scores[name][-1], self.metric_widths[name])
+            )
+
+        msg = " | ".join(parts)
+        print(f"{msg}{tag}")
+
 
 class _CriterionBase(_MetricBase):
+    requirements:list
     name: str
     acronym: str
-    output_type = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -165,13 +245,20 @@ class _CriterionBase(_MetricBase):
         loss = None
         score = {self.acronym: None}
 
-        if self.check_type(prediction, soft=True):
+        #soft = True
+        if prediction.is_valid(self.requirements):
             loss = self.compute(prediction, targets)
             score[self.acronym] = loss.item()
             if self.derived:
                 score.update(self._compute_derived_metrics(loss))
+        # elif soft == False:
+        #    raise ValueError(f"{self.name}: Expected output type needs {self.requirements}, got {prediction}")
 
         return loss, score
+
+    @property
+    def monitor_name(self) -> str:
+        return self.acronym
 
     def _get_names(self) -> list[str]:
         names = [self.acronym]
@@ -188,18 +275,8 @@ class _CriterionBase(_MetricBase):
     @abstractmethod
     def compute(self, prediction:Prediction, targets:Any) -> torch.Tensor: ...
 
-    def check_type(self, prediction:Prediction, soft:bool=False) -> bool:
-        """Check if prediction output type matches metric expectation to allow computation. If soft=False, raises ValueError; if soft=True, returns False."""
-        if self.output_type:
-            if prediction.output_type != self.output_type:
-                if not soft:
-                    raise ValueError(f"{self.name}: Expected output type '{self.output_type}', got '{prediction.output_type}'")
-                else:
-                    return False
-        return True
-
-class NllLoss(_CriterionBase):
-    output_type = "probabilistic"
+class _NllLoss(_CriterionBase):
+    requirements = ["mean", "sigma"]
     name = "Negative Log-Likelihood"
 
     @staticmethod
@@ -208,12 +285,26 @@ class NllLoss(_CriterionBase):
         total = -dists.log_prob(targets).mean()
         return total
 
+    @abstractmethod
+    def calc_distr(self, prediction:Prediction) -> torch.distributions.Distribution: ...
+
     def compute(self, prediction:Prediction, targets:torch.Tensor) -> torch.Tensor:
-        dists = Normal(prediction.mean, prediction.sigma)
+        dists = self.calc_distr(prediction)
         return self.nll_loss(dists, targets)
 
+class GaussianNllLoss(_NllLoss):
+    name = "GaussianNegative Log-Likelihood"
+    def calc_distr(self, prediction:Prediction) -> torch.distributions.Distribution:
+        return Normal(prediction.mean, prediction.sigma)
+
+class StudentTNllLoss(_NllLoss):
+    requirements = ["mean", "sigma", "df"]
+    name = "Student-T Negative Log-Likelihood"
+    def calc_distr(self, prediction:Prediction) -> torch.distributions.Distribution:
+        return StudentT(prediction.df, prediction.mean, prediction.sigma)
+    
 class MSELoss(_CriterionBase):
-    output_type = None
+    requirements = ["mean"]
     name = "Mean Squared Error"
 
     def __init__(self, RMSE:bool=False):
@@ -238,7 +329,7 @@ class MSELoss(_CriterionBase):
         return nn.MSELoss(prediction.mean, targets)
 
 class MAELoss(_CriterionBase):
-    output_type = None
+    requirements = ["mean"]
     name = "Mean Absolute Error"
 
     @staticmethod
@@ -261,6 +352,8 @@ class MetricSuite(_MetricBase):
         self.primary = primary
         if primary in metrics:
             self.metrics.remove(primary)
+
+    
 
     def _hidden_call_(self, prediction:Prediction, targets:Any) -> Tuple[torch.tensor, dict[str, Optional[float]]]:
         """
@@ -286,6 +379,12 @@ class MetricSuite(_MetricBase):
 
         return loss, results
 
+    @property
+    def monitor_name(self) -> str:
+        if self.primary is None:
+            raise ValueError("MetricSuite has no primary metric, so no monitor_name is defined")
+        return self.primary.monitor_name
+
     def _get_names(self) -> list[str]:
         names = set()
         for metric in self.metrics:
@@ -293,3 +392,5 @@ class MetricSuite(_MetricBase):
         if self.primary:
             names.update(self.primary._get_names())
         return names
+
+        

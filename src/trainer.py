@@ -40,7 +40,7 @@ def eval_epoch(model, loader, criterion:_MetricBase, device):
     score = Score(criterion)
     for X, Y in loader:
         X, Y  = X.to(device), Y.to(device)
-        pred  = model([X])[0]
+        pred  = model(X)
         _, cur_scores = criterion(pred, Y)
         score.update(cur_scores)
     return score.get_scores()
@@ -51,38 +51,38 @@ def test_eval(model, save_path:str, test_loader, device):
     test_scores = eval_epoch(model, test_loader, device)
     print(test_scores)
 
-def training_loop(model, train_loader, val_loader, optimiser, scheduler, criterion, save_path:str, patience:int, device):
+def training_loop(model, config:trainingConfig, train_loader, val_loader, optimiser, scheduler, criterion):
     
     best_val_loss  = float("inf")
     no_improve     = 0
-    train_scores = ScoreTracker(criterion)
-    val_scores = ScoreTracker(criterion)
-    print(f"\n{'Epoch':>6}  {'Train NLL':>10}  {'Val NLL':>10}  {'Val MAE':>9}")
+    scores = ScoreTracker(criterion)
+    scores.print_headline()
     print("-" * 44)
 
-    for epoch in range(1, EPOCHS + 1):
-        cur_train_score = train_epoch(model, train_loader, optimiser, device)
-        cur_val_scores   = eval_epoch(model, val_loader, device)
-        train_scores.update(cur_train_score)
-        val_scores.update(cur_val_scores)
+    for epoch in range(1, config.epochs + 1):
+        cur_train_score = train_epoch(model, train_loader, optimiser, config.device)
+        cur_val_scores = eval_epoch(model, val_loader, config.device)
+        scores.update(cur_train_score, "train")
+        scores.update(cur_val_scores, "val")
+        val_loss = cur_val_scores.get_metric(criterion.monitor_name)
         scheduler.step(val_loss)
 
         tag = " *" if val_loss < best_val_loss else ""
-        print(f"{epoch:>6}  {train_loss:>10.4f}  {val_loss:>10.4f}  {val_mae:>9.4f}{tag}")
+        scores.print_latest(epoch, tag)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             no_improve    = 0
-            torch.save(model.state_dict(), save_path)
+            torch.save(model.state_dict(), config.save_path)
         else:
             no_improve += 1
 
-        if no_improve >= patience:
-            print(f"\nEarly stopping at epoch {epoch} (no improvement for {patience} epochs)")
+        if no_improve >= config.patience:
+            print(f"\nEarly stopping at epoch {epoch} (no improvement for {config.patience} epochs)")
             break
 
-    print(f"\nBest val NLL: {best_val_loss:.4f}  — saved to {save_path}")
-    return train_scores, val_scores
+    print(f"\nBest val NLL: {best_val_loss:.4f}  — saved to {config.save_path}")
+    return scores
 
 def train(config:trainingConfig):
     print(f"\n{"="*40}\nTraining model: {config.model_name}")
@@ -111,76 +111,3 @@ def train(config:trainingConfig):
     os.makedirs(os.path.dirname(config.save_path), exist_ok=True)
     os.makedirs(os.path.dirname(config.results_path), exist_ok=True)
 
-
-def train(model_type:str, seed:Union[int, None]=None):
-
-    print(f"\n{"="*40}\nTraining model: {model_type}")
-
-    if model_type not in _DATASET_CACHE.keys():
-        print(f"invalid model type '{model_type}', must be one of '{_DATASET_CACHE.keys()}'")
-        return
-
-    if seed:
-        if type(seed)!= int:
-            raise TypeError(f"seed must either be 'None' or an 'int', got: {seed}")
-        torch.manual_seed(42)
-        np.random.seed(42)
-    
-    MODEL_PATH   = f"models/best_{model_type}.pt"
-    RESULTS_PATH = f"results/{model_type}_losses.npz"
-    os.makedirs("models",  exist_ok=True)
-    os.makedirs("results", exist_ok=True)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-
-
-    N_PCS      = 128
-    CONTEXT    = 48   # context (48) — matches paper (C=48, P=16)
-    PRED_LEN   = 16   # Prediction (16), for RNN/ LSTM Change to 1
-    # PRED_LEN = 1
-    BATCH_SIZE = 32
-    EPOCHS     = 50
-    LR         = 1e-3
-    VAL_FRAC   = 0.2
-    TRAIN_FRAC = 0.6
-
-    
-    # --- Data ---
-
-    train_loader, val_loader, N = fetch_data_loaders("DLinear",CONTEXT, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
-    
-    # --- Model ---
-    model = DLinear(CONTEXT, PRED_LEN, N, individual=False).to(device)
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable parameters: {n_params:,}")
-
-    optimiser = torch.optim.Adam(model.parameters(), lr=LR)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimiser, patience=5, factor=0.5)
-    criterion = nn.MSELoss()
-
-    train_losses, val_mses, val_maes = [], [], []
-    best_val = float("inf")
-
-    for epoch in range(1, EPOCHS + 1):
-        train_loss       = train_epoch(model, train_loader, optimiser, criterion, device)
-        val_mse, val_mae = eval_epoch(model, val_loader, criterion, device)
-        scheduler.step(val_mse)
-        train_losses.append(train_loss)
-        val_mses.append(val_mse)
-        val_maes.append(val_mae)
-
-        tag = " *" if val_mse < best_val else ""
-        if val_mse < best_val:
-            best_val = val_mse
-            torch.save(model.state_dict(), MODEL_PATH)
-
-        print(f"Epoch {epoch:3d}/{EPOCHS}  "
-              f"train={train_loss:.4f}  "
-              f"val_mse={val_mse:.4f}  "
-              f"val_mae={val_mae:.4f}{tag}")
-
-    print(f"\nBest val MSE: {best_val:.4f}  — saved to {MODEL_PATH}")
-    np.savez(RESULTS_PATH, train_losses=train_losses,
-             val_mses=val_mses, val_maes=val_maes)
-    print(f"Loss history saved to {RESULTS_PATH}")

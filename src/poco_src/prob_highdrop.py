@@ -14,8 +14,8 @@ import numpy as np
 from torch.distributions import Normal
 from torch.utils.data import DataLoader
 
-from POCO_prob import ProbabilisticPOCO, CalciumDataset, nll_loss
-from standalone_poco import NeuralPredictionConfig, RotaryCrossAttention, RotarySelfAttention
+from src.poco_src.prob import ProbabilisticPOCO, CalciumDataset, nll_loss
+from src.poco_src.standalone_poco import NeuralPredictionConfig, RotaryCrossAttention, RotarySelfAttention
 
 
 def set_attention_dropout(model: nn.Module, atn_dropout: float):

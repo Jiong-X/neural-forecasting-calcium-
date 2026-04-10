@@ -44,9 +44,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch.distributions import StudentT
+
 from torch.utils.data import Dataset, DataLoader
 
-from poco_src.standalone_poco import POCO, NeuralPredictionConfig
+from src.poco_src.standalone_poco import POCO, NeuralPredictionConfig
 
 
 # ---------------------------------------------------------------------------

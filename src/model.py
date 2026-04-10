@@ -25,8 +25,8 @@ import torch.nn as nn
 # add project root to path so POCO_prob and standalone_poco are importable
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss
-from poco_src.standalone_poco import NeuralPredictionConfig
+from src.poco_src.prob import ProbabilisticPOCO, nll_loss
+from src.poco_src.standalone_poco import NeuralPredictionConfig
 
 
 class ProbabilisticForecaster(nn.Module):

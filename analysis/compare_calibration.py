@@ -33,9 +33,9 @@ from torch.utils.data import Dataset, DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poco_src.standalone_poco import NeuralPredictionConfig
-from poco_src.POCO_prob    import ProbabilisticPOCO, CalciumDataset
-from poco_src.POCO_studentt import StudentTPOCO
+from src.poco_src.standalone_poco import NeuralPredictionConfig
+from src.poco_src.prob    import ProbabilisticPOCO, CalciumDataset
+from src.poco_src.studentt import StudentTPOCO
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DATA_PATH   = "data/processed/0.npz"

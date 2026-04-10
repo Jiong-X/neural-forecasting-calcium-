@@ -23,7 +23,7 @@ import numpy as np
 from torch.distributions import Normal
 from torch.utils.data import Dataset, DataLoader
 
-from poco_src.standalone_poco import POCO, NeuralPredictionConfig
+from src.poco_src.standalone_poco import POCO, NeuralPredictionConfig
 
 
 # ---------------------------------------------------------------------------

@@ -106,13 +106,10 @@ class trainingConfig:
     sequence_length: int = field(default=64)       # context (48) + horizon (16)
     pred_length: int = field(default=16)       # prediction horizon
 
-    n_channels: int = field(default=128)      # top-128 principal components
+    n_channels: int = field(default=512)      # top-128 principal components
     batch_size: int = field(default=64)
     epochs: int = field(default=50)
-
-    LR          = 3e-4     # AdamW learning rate (paper default)
-    WEIGHT_DECAY= 1e-4     # AdamW weight decay  (paper default)
-    PATIENCE    = 10       # early stopping patience (epochs)
+    patience    = field(default=10)       # early stopping patience (epochs)
     SAVE_FOLDER   = field(default="models/saved")
     RESULTS_FOLDER = field(default="results")
 

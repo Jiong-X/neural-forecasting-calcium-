@@ -24,8 +24,8 @@ from torch.utils.data import DataLoader
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from poco_src.POCO_prob import ProbabilisticPOCO, CalciumDataset
-from poco_src.standalone_poco import NeuralPredictionConfig
+from src.poco_src.prob import ProbabilisticPOCO, CalciumDataset
+from src.poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
 # Config — must match training settings in POCO.py and POCO_prob.py

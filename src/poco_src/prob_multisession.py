@@ -25,8 +25,8 @@ import torch.nn as nn
 from torch.distributions import Normal
 from torch.utils.data import Dataset, DataLoader
 
-from standalone_poco import POCO, NeuralPredictionConfig
-from POCO_prob import ProbabilisticPOCO, nll_loss
+from src.poco_src.standalone_poco import POCO, NeuralPredictionConfig
+from src.poco_src.prob import ProbabilisticPOCO, nll_loss
 
 
 # ---------------------------------------------------------------------------

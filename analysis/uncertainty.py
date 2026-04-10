@@ -27,8 +27,8 @@ from torch.utils.data import DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poco_src.POCO_prob import ProbabilisticPOCO, nll_loss, CalciumDataset
-from poco_src.standalone_poco import NeuralPredictionConfig
+from src.poco_src.prob import ProbabilisticPOCO, nll_loss, CalciumDataset
+from src.poco_src.standalone_poco import NeuralPredictionConfig
 
 # ---------------------------------------------------------------------------
 # MC Dropout helper
