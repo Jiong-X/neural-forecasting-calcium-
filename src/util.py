@@ -1,3 +1,7 @@
+# GEN AI STATEMENT
+# this script was fully written by a human, training was standardised to enable easy and guaranteed benchmarking to baseline models
+
+
 from dataclasses import dataclass, field
 import os
 import numpy as np
