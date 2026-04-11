@@ -119,6 +119,12 @@ class Score:
             instance.unmodified_tracker[name] = 0
         return instance
 
+    @staticmethod
+    def _format_value(value: Optional[float], width: int, precision: int = 4) -> str:
+        if value is None:
+            return f"{'n/a':>{width}}"
+        return f"{value:>{width}.{precision}f}"
+
     def __str__(self) -> str:
         """Pretty print scores in aligned columns"""
         
@@ -129,7 +135,7 @@ class Score:
         parts = []
         for name, value in self.scores.items():
             parts.append(
-                f"{name:<{name_width}} : {value:>{value_width}.{precision}f}"
+                f"{name:<{name_width}} : {self._format_value(value, value_width, precision)}"
             )
         
         return " | ".join(parts)
