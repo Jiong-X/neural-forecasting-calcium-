@@ -65,6 +65,7 @@ class _MetricBase(ABC):
 class Score:
     criterion: _MetricBase = field()
     total: int = field(default=0, init=False)
+    unmodified_tracker: dict[str, int] = field(init=False, default_factory=dict)
     scores: dict[str, Optional[float]] = field(default_factory=dict)
 
     def update(self, kwargs) -> None:
@@ -73,6 +74,7 @@ class Score:
         self.total += total
         for key, value in kwargs.items():
             if value is None:
+                self.unmodified_tracker[key] = self.unmodified_tracker.get(key, 0) + total
                 continue
             self.scores[key] += (value * total)
 
@@ -84,6 +86,10 @@ class Score:
         normalised_scores["total"] = 1
         ret_instance = self.create(self.criterion)
         ret_instance.update(normalised_scores)
+
+        for key, val in self.unmodified_tracker.items():
+            if val == self.total:
+                ret_instance.scores[key] = None
         return ret_instance
     
     def _normalise(self) -> dict[str, Optional[float]]:
@@ -110,6 +116,7 @@ class Score:
         instance = cls(criterion=criterion)
         for name in criterion._get_names():
             instance.scores[name] = 0.0
+            instance.unmodified_tracker[name] = 0
         return instance
 
     def __str__(self) -> str:

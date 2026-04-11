@@ -33,38 +33,6 @@ def set_attention_dropout(model: nn.Module, atn_dropout: float):
     print(f"Patched attention dropout → {atn_dropout} on {patched} modules")
 
 
-def train_epoch(model, loader, optimiser, device):
-    model.train()
-    total = 0.0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
-        optimiser.zero_grad()
-        dists = model(x_list)
-        loss  = nll_loss(dists, y_list)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimiser.step()
-        total += loss.item() * len(X)
-    return total / len(loader.dataset)
-
-
-@torch.no_grad()
-def eval_epoch(model, loader, device):
-    model.eval()
-    total_nll, total_mae, n = 0.0, 0.0, 0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        x_list = [X.permute(1, 0, 2)]
-        y_list = [Y.permute(1, 0, 2)]
-        dists = model(x_list)
-        total_nll += nll_loss(dists, y_list).item() * len(X)
-        pred_mu = dists[0].mean
-        total_mae += (pred_mu - y_list[0]).abs().mean().item() * len(X)
-        n += len(X)
-    return total_nll / n, total_mae / n
-
 
 if __name__ == "__main__":
     torch.manual_seed(42)

@@ -43,6 +43,7 @@ N_PCS          = 128    # number of principal components to keep
 # ---------------------------------------------------------------------------
 # Dataset — sliding window (context, target) pairs
 # ---------------------------------------------------------------------------
+
 class CalciumDataset(Dataset):
     """
     Wraps a (T, N) trace array into sliding-window (context, target) pairs.
@@ -54,23 +55,20 @@ class CalciumDataset(Dataset):
         x : (context_len, N)  — input population activity
         y : (pred_len,    N)  — target population activity
     """
-
     def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
-        traces = traces.astype(np.float32)
-
-        win = context_len + pred_len
-        X, Y = [], []
-        for t in range(len(traces) - win + 1):
-            X.append(traces[t           : t + context_len])
-            Y.append(traces[t + context_len : t + win    ])
-        self.X = torch.tensor(np.array(X))   # (S, context_len, N)
-        self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)
+        self.traces = torch.as_tensor(traces, dtype=torch.float32)
+        self.context_len = context_len
+        self.pred_len = pred_len
+        self.win = context_len + pred_len
+        self.n_samples = len(traces) - self.win + 1
 
     def __len__(self):
-        return len(self.X)
+        return self.n_samples
 
     def __getitem__(self, idx):
-        return self.X[idx], self.Y[idx]
+        x = self.traces[idx : idx + self.context_len]
+        y = self.traces[idx + self.context_len : idx + self.win]
+        return x, y
 
 
 # ---------------------------------------------------------------------------
@@ -179,12 +177,18 @@ def _preprocess_raw_chunked(raw_path: str, out_path: str, n_pcs: int = N_PCS, ch
     print("  Eigendecomposing temporal covariance ...")
     evals, evecs = np.linalg.eigh(C)
 
+    # get the top PCs for specific idx
     idx = np.argsort(evals)[::-1]
     evals = evals[idx][:n_pcs]
     evecs = evecs[:, idx][:, :n_pcs]
 
     scores = evecs * np.sqrt(np.clip(evals, 0, None))
     PC = scores.T.astype(np.float32)   # (n_pcs, T)
+
+    # z-score each PC over time
+    pc_mu = PC.mean(axis=1, keepdims=True)
+    pc_std = PC.std(axis=1, keepdims=True) + 1e-6
+    PC = ((PC - pc_mu) / pc_std).astype(np.float32)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     np.savez_compressed(out_path, PC=PC)
