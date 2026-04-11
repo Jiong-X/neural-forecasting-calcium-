@@ -20,17 +20,11 @@ Outputs:
     results/train_losses.npz       loss curves (train NLL, val NLL, val MAE)
 """
 
-import os
-import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
-from src.dataset    import get_splits
 from src.model      import ProbabilisticForecaster
-from src.train_utils import train_one_epoch, validate, compute_mae
 
-
-from src.metrics import MetricSuite, GaussianNllLoss, MAELoss
+from src.metrics import MetricSuite, GaussianNllLoss, MAELoss, StudentTNllLoss, MSELoss
 from src.util import trainingConfig
 from src.trainer import train
      
@@ -44,7 +38,7 @@ if __name__ == "__main__":
     LR          = 3e-4     # AdamW learning rate (paper default)
     WEIGHT_DECAY= 1e-4     # AdamW weight decay  (paper default)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    criterion = MetricSuite([MAELoss()], primary=GaussianNllLoss())
+    criterion = MetricSuite([MAELoss(), MSELoss(RMSE=True), StudentTNllLoss()], primary=GaussianNllLoss())
     train(model, config, optimizer, criterion)
 
 """

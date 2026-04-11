@@ -4,8 +4,8 @@
 import re
 
 import torch
-import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
 
 from torch.distributions import Normal, StudentT
 from dataclasses import dataclass, field
@@ -303,7 +303,7 @@ class _CriterionBase(_MetricBase):
     def _get_names(self) -> list[str]:
         names = [self.acronym]
         if self.derived:
-            names.extend(self._derived_metrics)
+            names.extend(self._derived_metrics())
         return names
 
     def _derived_metrics(self) -> Optional[list[str]]:
@@ -362,11 +362,11 @@ class MSELoss(_CriterionBase):
     def _compute_rmse(mse:torch.Tensor) -> torch.Tensor:
         return torch.sqrt(mse)
 
-    def _compute_derived_metrics(self) -> dict[str, torch.Tensor]:
-        return {"RMSE": self._compute_rmse().item()}
+    def _compute_derived_metrics(self, loss:torch.Tensor) -> dict[str, torch.Tensor]:
+        return {"RMSE": self._compute_rmse(loss).item()}
 
     def compute(self, prediction:Prediction, targets:torch.Tensor) -> torch.Tensor:
-        return nn.MSELoss(prediction.mean, targets)
+        return F.mse_loss(prediction.mean, targets)
 
 class MAELoss(_CriterionBase):
     requirements = ["mean"]
