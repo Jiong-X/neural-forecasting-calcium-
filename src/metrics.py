@@ -331,7 +331,7 @@ class _NllLoss(_CriterionBase):
         return self.nll_loss(dists, targets)
 
 class GaussianNllLoss(_NllLoss):
-    name = "GaussianNegative Log-Likelihood"
+    name = "Gaussian Negative Log-Likelihood"
     def calc_distr(self, prediction:Prediction) -> torch.distributions.Distribution:
         return Normal(prediction.mean, prediction.sigma)
 

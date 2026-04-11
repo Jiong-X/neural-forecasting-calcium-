@@ -1,15 +1,13 @@
 from dataclasses import dataclass, field
-import sys
 import os
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from typing import Dict, Tuple, Union
+from torch.utils.data import DataLoader
 
 from src.dataset import _load_traces
 
-from typing import Dict, Tuple, Union, Optional
 
 # ---------------------------------------------------------------------------
 # Dataset 

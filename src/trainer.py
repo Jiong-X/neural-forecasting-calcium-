@@ -1,21 +1,16 @@
 # ---------------------------------------------------------------------------
 # Training / evaluation helpers
 # ---------------------------------------------------------------------------
-import sys
 import os
 import numpy as np
 import torch
 import torch.nn as nn
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.baseline_models.MLP import MLPHead
-from src.dataset import get_splits
 from torch.utils.data import DataLoader
 
-from src.model import ProbabilisticForecaster
-
-from metrics import MetricSuite, Score, _MetricBase, ScoreTracker, GaussianNllLoss, MAELoss
-from util import trainingConfig
+from src.dataset import get_splits
+from src.metrics import Score, _MetricBase, ScoreTracker
+from src.util import trainingConfig
 
 def train_epoch(model, loader, optimiser, criterion:_MetricBase, device):
     model.train()
@@ -48,7 +43,6 @@ def training_loop(model, config:trainingConfig, train_loader, val_loader, optimi
     no_improve = 0
     scores = ScoreTracker.create(criterion)
     scores.print_headline()
-    print("-" * 44)
 
     for epoch in range(1, config.epochs + 1):
         cur_train_score = train_epoch(model, train_loader, optimiser, criterion,config.device)
@@ -77,6 +71,7 @@ def training_loop(model, config:trainingConfig, train_loader, val_loader, optimi
 
 def train(model, config:trainingConfig, optimiser, criterion):
     print(f"\n{'='*40}\nTraining model: {config.model_name}")
+    print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     # ── Reproducibility ───────────────────────────────────────────────────────────
     if (seed := config.seed) is not None:
@@ -131,16 +126,3 @@ def train(model, config:trainingConfig, optimiser, criterion):
 
     print(f"Loss curves saved to {config.results_path}")
     print("Training complete.")
-
-if __name__ == "__main__":
-    
-    config = trainingConfig(model_name="MLP")
-    model = model = MLPHead(
-        n_neurons=config.n_channels, context_len=(config.sequence_length - config.pred_length), cond_dim=1024, pred_len=config.pred_length,
-    ).to(config.device)
-    LR          = 3e-4     # AdamW learning rate (paper default)
-    WEIGHT_DECAY= 1e-4     # AdamW weight decay  (paper default)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    criterion = MetricSuite([MAELoss()], primary=GaussianNllLoss())
-    train(model, config, optimizer, criterion)
-    print("This module is not meant to be run directly. Please import and call the 'train' function from your training script.")

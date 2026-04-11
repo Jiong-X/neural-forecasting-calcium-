@@ -16,16 +16,11 @@ Architecture:
   - Gaussian output head: predicts mu and log-sigma per neuron per step
   - Trained with Gaussian NLL loss
 """
-
-import sys
-import os
 import torch
 import torch.nn as nn
 
-# add project root to path so POCO_prob and standalone_poco are importable
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.poco_src.prob import ProbabilisticPOCO, nll_loss
+from src.metrics import Prediction
+from src.poco_src.prob import ProbabilisticPOCO
 from src.poco_src.standalone_poco import NeuralPredictionConfig
 
 
@@ -82,7 +77,7 @@ class ProbabilisticForecaster(nn.Module):
         mean   = dist.mean.permute(1, 0, 2)     # (B, pred_len, N)
         # convert sigma -> logvar = 2 * log(sigma)
         logvar = 2 * dist.scale.log().permute(1, 0, 2)
-        return mean, logvar
+        return Prediction(mean=mean, logvar=logvar)
 
     def predict_distribution(self, x: torch.Tensor):
         """
