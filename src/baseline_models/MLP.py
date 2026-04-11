@@ -26,7 +26,7 @@ from torch.utils.data import Dataset, DataLoader
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from src.train_utils import gaussian_nll_loss
-
+from src.metrics import Prediction
 
 # ---------------------------------------------------------------------------
 # Dataset  (identical to POCO_prob.py)
@@ -98,7 +98,7 @@ class MLPHead(nn.Module):
 
         mu     = mu.transpose(1, 2)                                        # (B, pred_len, N)
         logvar = (2 * sigma.log()).transpose(1, 2)                         # (B, pred_len, N)
-        return mu, logvar
+        return Prediction(mean=mu, logvar=logvar)
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +201,8 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
-    criterion = MetricSuite([MAELoss()], primary=NllLoss())
-
+    #criterion = MetricSuite([MAELoss()], primary=NllLoss())
+    criterion = "as"
     train_nlls, val_nlls = [], []
     best_nll   = float("inf")
     no_improve = 0

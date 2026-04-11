@@ -36,6 +36,7 @@ def collate_fn(batch):
     return X, Y
 
 _DATASET_CACHE: Dict[str, Dict] = {
+    "MLP":{},
     "ProbabilisticPOCO":{},
     "TSMixer":{"collate_fn":collate_fn},
     "TexFilter":{"collate_fn":collate_fn},
@@ -106,16 +107,14 @@ class trainingConfig:
     sequence_length: int = field(default=64)       # context (48) + horizon (16)
     pred_length: int = field(default=16)       # prediction horizon
 
-    n_channels: int = field(default=512)      # top-128 principal components
+    n_channels: int = field(default=128)      # top-128 principal components
     batch_size: int = field(default=64)
     epochs: int = field(default=50)
-    patience    = field(default=10)       # early stopping patience (epochs)
-    SAVE_FOLDER   = field(default="models/saved")
-    RESULTS_FOLDER = field(default="results")
+    patience:int    = field(default=10)       # early stopping patience (epochs)
+    SAVE_FOLDER:str   = field(default="models/saved")
+    RESULTS_FOLDER:str = field(default="results")
 
     def __post_init__(self):
-        if self.model_name not in _DATASET_CACHE.keys():
-            raise ValueError(f"invalid model name '{self.model_name}', must be one of '{_DATASET_CACHE.keys()}'")
         if type(self.seed) not in [int, type(None)]:
             raise TypeError(f"seed must either be 'None' or an 'int', got: {self.seed}")
 

@@ -3,6 +3,7 @@ import re
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from torch.distributions import Normal, StudentT
 from dataclasses import dataclass, field
@@ -12,16 +13,22 @@ from abc import ABC, abstractmethod
 @dataclass
 class Prediction:
     mean: Optional[torch.Tensor] = field(default=None)
-    sigma: Optional[torch.Tensor] = field(default=None) # standard deviation
+    logvar: Optional[torch.Tensor] = field(default=None) # log-variance
     df: Optional[torch.Tensor] = field(default=None) # degrees of freedom
 
-    @property
     def is_valid(self, requirements: list) -> bool:
         for req in requirements:
             if getattr(self, req) is None:
                 return False
         return True
     
+    @property
+    def sigma(self) -> Optional[torch.Tensor]:
+        if self.logvar is not None:
+            return (0.5 * self.logvar).exp().clamp(min=1e-4)
+        else:
+            return None
+
     @property
     def variance(self) -> Optional[torch.Tensor]:
         if self.sigma is not None:
@@ -54,8 +61,8 @@ class _MetricBase(ABC):
 
 @dataclass
 class Score:
-    total: int = 0
-    criterion: _MetricBase = None
+    criterion: _MetricBase = field()
+    total: int = field(default=0, init=False)
     scores: dict[str, Optional[float]] = field(default_factory=dict)
 
     def update(self, kwargs) -> None:
@@ -121,9 +128,12 @@ class Score:
 @dataclass
 class ScoreTracker:
     
-    criterion: _MetricBase
+    criterion: _MetricBase = field()
+
     val_scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
     train_scores: dict[str, Optional[list[float]]] = field(default_factory=dict)
+    test_scores: dict[str, Optional[float]] = field(default_factory=dict)
+
     epoch_width: int = field(init=False)
     metric_widths: dict[str, int] = field(init=False)
     metric_names: list[str] = field(init=False)
@@ -146,21 +156,50 @@ class ScoreTracker:
 
         train_flags = ("train", "training")
         val_flags = ("val", "validation", "eval", "evaluation")
+        test_flags = ("test", "testing")
 
-        if flag.lower() in train_flags:
-            target_scores = self.train_scores
-        elif flag.lower() in val_flags:
-            target_scores = self.val_scores
-        else:
-            raise ValueError(f"Invalid flag '{flag.lower()}' for ScoreTracker.update, must be one of {train_flags + val_flags}")
-
-        if score.total != 1: # normalise
+        if score.total != 1:
             score = score.get_scores()
 
-        for key, value in score.scores.items():
-            if value is None:
-                continue
-            target_scores[key].append(value)
+        flag = flag.lower()
+
+        if flag in train_flags:
+            target_scores = self.train_scores
+            for key, value in score.scores.items():
+                target_scores[key].append(value)
+
+        elif flag in val_flags:
+            target_scores = self.val_scores
+            for key, value in score.scores.items():
+                target_scores[key].append(value)
+
+        elif flag in test_flags:
+            for key, value in score.scores.items():
+                self.test_scores[key] = value
+        else:
+            raise ValueError(
+                f"Invalid flag '{flag}' for ScoreTracker.update, "
+                f"must be one of {train_flags + val_flags + test_flags}"
+            )
+        
+    def to_save_dict(self) -> dict[str, np.ndarray]:
+        save_dict = {}
+        loss_key = self.criterion.monitor_name
+
+        for key, values in self.train_scores.items():
+            if key == loss_key:
+                save_dict["train_losses"] = np.array(values, dtype=float)
+            save_dict[f"train_{key}"] = np.array(values, dtype=float)
+
+        for key, values in self.val_scores.items():
+            if key == loss_key:
+                save_dict["val_losses"] = np.array(values, dtype=float)
+            save_dict[f"val_{key}"] = np.array(values, dtype=float)
+
+        for key, value in self.test_scores.items():
+            save_dict[f"test_{key}"] = np.array(np.nan if value is None else value, dtype=float)
+
+        return save_dict
 
     def _column_specs(self) -> tuple[int, dict[str, int]]:
         """
@@ -175,7 +214,7 @@ class ScoreTracker:
         epoch_width = max(len("Epoch"), 5)
 
         metric_widths = {}
-        for name in self._metric_names():
+        for name in self.metric_names:
             header_train = f"Train {name}"
             header_val = f"Val {name}"
 
@@ -195,10 +234,10 @@ class ScoreTracker:
     def print_headline(self) -> None:
         parts = [f"{'Epoch':>{self.epoch_width}}"]
 
-        for name in self._metric_names():
+        for name in self.metric_names:
             parts.append(f"{('Train ' + name):>{self.metric_widths[name]}}")
 
-        for name in self._metric_names():
+        for name in self.metric_names:
             parts.append(f"{('Val ' + name):>{self.metric_widths[name]}}")
 
         line = " | ".join(parts)
@@ -220,7 +259,6 @@ class ScoreTracker:
 
         msg = " | ".join(parts)
         print(f"{msg}{tag}")
-
 
 class _CriterionBase(_MetricBase):
     requirements:list
@@ -246,7 +284,7 @@ class _CriterionBase(_MetricBase):
         score = {self.acronym: None}
 
         #soft = True
-        if prediction.is_valid(self.requirements):
+        if prediction.is_valid(requirements=self.requirements):
             loss = self.compute(prediction, targets)
             score[self.acronym] = loss.item()
             if self.derived:
@@ -280,7 +318,7 @@ class _NllLoss(_CriterionBase):
     name = "Negative Log-Likelihood"
 
     @staticmethod
-    def nll_loss(dists: Normal, targets: list[torch.Tensor]) -> torch.Tensor:
+    def nll_loss(dists: Normal, targets: torch.Tensor) -> torch.Tensor:
         """Mean Gaussian NLL across all sessions."""
         total = -dists.log_prob(targets).mean()
         return total
