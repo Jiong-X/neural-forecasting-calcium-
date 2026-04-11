@@ -20,7 +20,7 @@ def run_MLP():
     train(model, config, optimizer, criterion)
 
 def run_deterministicPOCO():
-    config = trainingConfig(model_name="Deterministic Poco")
+    config = trainingConfig(model_name="DeterministicPoco")
     model = DeterministicPOCO(
     seq_length  = config.sequence_length,
     pred_length = config.pred_length,
@@ -33,4 +33,4 @@ def run_deterministicPOCO():
     train(model, config, optimizer, criterion)
 
 if __name__ == "__main__":
-    run_deterministicPOCO()
+    run_MLP()

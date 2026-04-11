@@ -29,7 +29,7 @@ from src.util import trainingConfig
 from src.trainer import train
      
 if __name__ == "__main__":
-    config = trainingConfig(model_name="Probabilistic POCO")
+    config = trainingConfig(model_name="ProbabilisticPOCO")
     model = ProbabilisticForecaster(
     seq_length  = config.sequence_length,
     pred_length = config.pred_length,
