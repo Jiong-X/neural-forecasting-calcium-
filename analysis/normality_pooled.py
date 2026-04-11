@@ -27,8 +27,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import (probplot, norm, gaussian_kde,
                          skewtest, kurtosistest, normaltest, skew, kurtosis)
 import torch
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.dataset import get_test_dataset
 from src.model   import ProbabilisticForecaster
 
