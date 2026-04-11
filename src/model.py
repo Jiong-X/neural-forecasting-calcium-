@@ -75,9 +75,55 @@ class ProbabilisticForecaster(nn.Module):
         return response
 
 
+class DeterministicPOCO(nn.Module):
+    name:str = "deterministicPOCO"
+
+    def __init__(self,
+                 seq_length:  int = 64,
+                 pred_length: int = 16,
+                 n_channels:  int = 128):
+        super().__init__()
+
+        self.pred_length  = pred_length
+        self.context_len  = seq_length - pred_length
+        self.n_channels   = n_channels
+
+        # Build POCO config — matching paper defaults
+        config = NeuralPredictionConfig()
+        config.seq_length          = seq_length
+        config.pred_length         = pred_length
+        config.compression_factor  = 16
+        config.decoder_hidden_size = 128
+        config.conditioning_dim    = 1024
+        config.decoder_num_layers  = 1
+        config.decoder_num_heads   = 16
+        config.poyo_num_latents    = 8
+
+        self.poco = POCO(config, [[n_channels]])
+
+    def forward(self, x: torch.Tensor):
+        """
+        x : (B, context_len, N)
+        returns:
+            mean   : (B, pred_len, N)
+            logvar : (B, pred_len, N)
+        """
+        # POCO expects list of (L, B, N) tensors — one per session
+        x_list = [x.permute(1, 0, 2)]          # (context_len, B, N)
+        dists   = self.poco(x_list)             # list of Normal distributions
+
+
+        response = dists[0]                      # single session # (pred_len, B, D) 
+
+        mean   = response.permute(1, 0, 2)     # (B, pred_len, N) 
+        # convert sigma -> logvar = 2 * log(sigma)
+        return Prediction(mean=mean)
+
+
 # ---------------------------------------------------------------------------
 # Probabilistic head
 # ---------------------------------------------------------------------------
+
 
 class ProbabilisticPOCO(POCO):
     """

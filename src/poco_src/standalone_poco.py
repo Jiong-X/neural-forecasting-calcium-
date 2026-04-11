@@ -887,7 +887,7 @@ class POCO(nn.Module):
             input = input.permute(1, 2, 0)              # B, D, L
             weights = self.in_proj(input) * alpha + beta  # FiLM modulation: B, D, cond_dim
             pred = self.out_proj(weights)               # B, D, pred_length
-            preds.append(pred.permute(2, 0, 1))
+            preds.append(pred.permute(2, 0, 1))         # pred_length, B, D
 
         return preds
     
