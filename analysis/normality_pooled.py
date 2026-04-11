@@ -27,8 +27,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import (probplot, norm, gaussian_kde,
                          skewtest, kurtosistest, normaltest, skew, kurtosis)
 import torch
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.dataset import get_test_dataset
 from src.model   import ProbabilisticForecaster
 
@@ -69,7 +68,9 @@ Y = torch.stack([test_ds[i][1] for i in idx]).to(DEVICE)
 # ── Forward pass → standardised residuals ────────────────────────────────────
 print("Running forward pass …")
 with torch.no_grad():
-    mean, logvar = model(X)
+    pred   = model(X)
+    mean   = pred.mean
+    logvar = pred.logvar
 sigma = (0.5 * logvar).exp()
 
 res_std = ((Y - mean) / (sigma + 1e-8)).cpu().numpy()   # (S, P, N)
