@@ -7,7 +7,7 @@ For each step h in [1, PRED_LEN] we compute:
   - MAE averaged over all test windows and all 128 PCs
 
 Outputs:
-    results/plots/horizon_mae.png
+    results/figures/horizon_mae.png
     results/horizon_mae.npz
 """
 
@@ -27,7 +27,7 @@ from src.dataset               import _load_traces
 from src.model                 import ProbabilisticForecaster, DeterministicPOCO
 from src.baseline_models.MLP   import MLPHead
 
-os.makedirs("results/plots", exist_ok=True)
+os.makedirs("results/figures", exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Config — mirrors trainingConfig defaults
@@ -193,7 +193,7 @@ ax.spines[["top", "right"]].set_visible(False)
 ax.set_xlim(0.5, PRED_LEN + 0.5)
 
 plt.tight_layout()
-out = "results/plots/horizon_mae.png"
+out = "results/figures/horizon_mae.png"
 plt.savefig(out, dpi=150, bbox_inches="tight")
 print(f"Saved {out}")
 plt.close()
