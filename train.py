@@ -27,8 +27,10 @@ from src.model      import ProbabilisticForecaster
 from src.metrics import MetricSuite, GaussianNllLoss, MAELoss, StudentTNllLoss, MSELoss
 from src.util import trainingConfig
 from src.trainer import train
-     
+from run_benchmark import run_MLP, run_deterministicPOCO  
+
 if __name__ == "__main__":
+    """ run central model, probabilisticPOCO:"""
     config = trainingConfig(model_name="ProbabilisticPOCO")
     model = ProbabilisticForecaster(
     seq_length  = config.sequence_length,
@@ -40,7 +42,14 @@ if __name__ == "__main__":
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     criterion = MetricSuite([MAELoss(), MSELoss(RMSE=True), StudentTNllLoss()], primary=GaussianNllLoss())
     train(model, config, optimizer, criterion)
+    
+    """
+    run central benchmarks, used in test.py
+    """
 
+    run_MLP()
+    run_deterministicPOCO()
+    
 """
 DEVICE      = "cuda" if torch.cuda.is_available() else "cpu"
 SEQ_LENGTH  = 64       # context (48) + horizon (16)
