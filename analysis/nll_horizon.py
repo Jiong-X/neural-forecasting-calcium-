@@ -1,5 +1,5 @@
 """
-eval_horizon_nll.py
+nll_horizon.py
 -------------------
 Compare Gaussian NLL of POCO (prob.) and MLP as a function of prediction horizon step.
 
@@ -7,7 +7,7 @@ For each step h in [1, PRED_LEN] we compute:
   - Mean Gaussian NLL averaged over all test windows and all 128 PCs
 
 Outputs:
-    results/plots/horizon_nll.png
+    results/figures/horizon_nll.png
     results/horizon_nll.npz
 """
 
@@ -28,7 +28,7 @@ from src.dataset             import _load_traces
 from src.model               import ProbabilisticForecaster
 from src.baseline_models.MLP import MLPHead
 
-os.makedirs("results/plots", exist_ok=True)
+os.makedirs("results/figures", exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -150,7 +150,7 @@ ax.spines[["top", "right"]].set_visible(False)
 ax.set_xlim(0.5, PRED_LEN + 0.5)
 
 plt.tight_layout()
-out = "results/plots/horizon_nll.png"
+out = "results/figures/horizon_nll.png"
 plt.savefig(out, dpi=150, bbox_inches="tight")
 print(f"Saved {out}")
 plt.close()
