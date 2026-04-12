@@ -101,7 +101,7 @@ mlp_model  = _load_mlp()
 
 def eval_per_step(model, loader):
     """Return (PRED_LEN,) array of mean MAE per forecast step.
-    Accumulates sums to correctly weight the last (smaller) batch.
+    Accumulates sums to weight the last (smaller) batch.
     """
     mae_sum   = np.zeros(PRED_LEN)
     n_samples = 0
@@ -184,10 +184,9 @@ ax.axhline(det_mae.mean(),  color="#7d3c98", linewidth=1.0, linestyle="--",
 ax.axhline(prob_mae.mean(), color="#e74c3c", linewidth=1.0, linestyle="--",
            label=f"POCO (prob.) mean MAE = {prob_mae.mean():.4f}")
 
-ax.set_xlabel("Prediction step  (frames)", fontsize=12)
+ax.set_xlabel("Prediction Step  (frames)", fontsize=12)
 ax.set_ylabel("MAE  (z-score units)", fontsize=12)
-ax.set_title("Forecasting error vs prediction horizon\n"
-             "C=48  |  Top-128 PCs  |  Zebrafish Ahrens (Subject 0)",
+ax.set_title("Forecasting Error vs Prediction Horizon\n",
              fontsize=12, fontweight="bold")
 ax.set_xticks(steps)
 ax.legend(fontsize=9, framealpha=0.7)
