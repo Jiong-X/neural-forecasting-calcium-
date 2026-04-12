@@ -77,6 +77,11 @@ def train(model, config:trainingConfig, optimiser, criterion):
     print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     # ── Reproducibility ───────────────────────────────────────────────────────────
+
+    """
+    the following has been moved to the util.py function. It has to be initialised in the config before the model is created, otherwise the initial weights of the model will not be deterministic across runs, 
+    which breaks benchmarking. By moving it to the util.py function, we can guarantee that all models are initialised with the same seed and are therefore directly comparable.
+    
     if (seed := config.seed) is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -84,7 +89,7 @@ def train(model, config:trainingConfig, optimiser, criterion):
             torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True   # force deterministic CUDA kernels
         torch.backends.cudnn.benchmark = False  # disable auto-tuner (picks same algo each run)
-
+    """
     print(f"Device: {config.device}")
 
     # Data — auto-retrieved ─────────────────────────────────────────────────────────

@@ -439,11 +439,11 @@ class MetricSuite(_MetricBase):
         return self.primary.monitor_name
 
     def _get_names(self) -> list[str]:
-        names = set()
-        for metric in self.metrics:
-            names.update(metric._get_names())
+        names = []
         if self.primary:
-            names.update(self.primary._get_names())
+            names.extend(self.primary._get_names())
+        for metric in self.metrics:
+            names.extend(metric._get_names())
         return names
 
         

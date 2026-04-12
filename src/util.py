@@ -120,6 +120,14 @@ class trainingConfig:
         if type(self.seed) not in [int, type(None)]:
             raise TypeError(f"seed must either be 'None' or an 'int', got: {self.seed}")
 
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+            np.random.seed(self.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(self.seed)
+            torch.backends.cudnn.deterministic = True   # force deterministic CUDA kernels
+            torch.backends.cudnn.benchmark = False  # disable auto-tuner (picks same algo each run)
+
     @property
     def save_path(self) -> str:
         if self.model_name == "ProbabilisticPOCO": # for backwards compatibility with old code, base model was stored under model.pt

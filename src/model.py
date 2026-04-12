@@ -76,7 +76,7 @@ class ProbabilisticForecaster(nn.Module):
 
 
 class DeterministicPOCO(nn.Module):
-    name:str = "deterministicPOCO"
+    name:str = "DeterministicPOCO"
 
     def __init__(self,
                  seq_length:  int = 64,

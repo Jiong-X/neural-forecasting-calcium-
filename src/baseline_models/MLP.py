@@ -41,6 +41,7 @@ class MLPHead(nn.Module):
 
     LOG_SIG_MIN = -6.0   # clamp raw log_sig to avoid underflow
     LOG_SIG_MAX =  2.0   # clamp raw log_sig to avoid instability
+    name:str = "MLP"
 
     def __init__(self, n_neurons: int, context_len: int, cond_dim: int, pred_len: int):
         super().__init__()
