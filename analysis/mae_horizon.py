@@ -1,5 +1,5 @@
 """
-eval_horizon.py
+mae_horizon.py
 ---------------
 Evaluate POCO (det.), POCO (prob.), and MLP MAE as a function of prediction horizon step.
 
