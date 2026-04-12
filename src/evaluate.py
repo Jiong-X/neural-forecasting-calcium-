@@ -25,9 +25,9 @@ def compute_metrics(model, loader, device, n_samples=100):
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
-            mean, logvar = model(x)
-            all_mean.append(mean.cpu())
-            all_logvar.append(logvar.cpu())
+            pred = model(x)
+            all_mean.append(pred.mean.cpu())
+            all_logvar.append(pred.logvar.cpu())
             all_y.append(y.cpu())
 
     mean   = torch.cat(all_mean)
@@ -63,9 +63,9 @@ def plot_predictions(model, loader, device, save_dir="results/figures", n_pcs=4)
     x_batch, y_batch = x_batch.to(device), y_batch.to(device)
 
     with torch.no_grad():
-        mean, logvar = model(x_batch)          # (B, pred_len, N)
-    std  = (0.5 * logvar).exp().cpu()
-    mean = mean.cpu()
+        pred = model(x_batch)                  # (B, pred_len, N)
+    std  = (0.5 * pred.logvar).exp().cpu()
+    mean = pred.mean.cpu()
     y    = y_batch.cpu()
     x    = x_batch.cpu()
 
