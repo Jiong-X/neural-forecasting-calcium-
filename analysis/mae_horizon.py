@@ -100,18 +100,22 @@ mlp_model  = _load_mlp()
 # ---------------------------------------------------------------------------
 
 def eval_per_step(model, loader):
-    """Return (PRED_LEN,) array of mean MAE per forecast step."""
-    errors  = np.zeros(PRED_LEN)
-    n_batch = 0
+    """Return (PRED_LEN,) array of mean MAE per forecast step.
+    Accumulates sums to correctly weight the last (smaller) batch.
+    """
+    mae_sum   = np.zeros(PRED_LEN)
+    n_samples = 0
     with torch.no_grad():
         for X, Y in loader:
             X = X.to(device)   # (B, context_len, N)
             Y = Y.to(device)   # (B, pred_len,    N)
+            B = X.size(0)
+
             pred = model(X)
-            mu   = pred.mean   # (B, pred_len, N)
-            errors  += (mu - Y).abs().mean(dim=(0, 2)).cpu().numpy()
-            n_batch += 1
-    return errors / n_batch
+            mae_sum   += (pred.mean - Y).abs().sum(dim=(0, 2)).cpu().numpy()  # sum over B and N
+            n_samples += B * Y.size(2)                                         # B × N
+
+    return mae_sum / n_samples
 
 
 print("\nEvaluating deterministic POCO ...")
