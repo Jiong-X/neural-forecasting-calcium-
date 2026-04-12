@@ -34,3 +34,4 @@ def run_deterministicPOCO():
 
 if __name__ == "__main__":
     run_MLP()
+    run_deterministicPOCO()
