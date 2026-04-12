@@ -10,7 +10,7 @@ from src.trainer import train
 def run_MLP():
      
     config = trainingConfig(model_name="MLP")
-    model = model = MLPHead(
+    model = MLPHead(
         n_neurons=config.n_channels, context_len=(config.sequence_length - config.pred_length), cond_dim=1024, pred_len=config.pred_length,
     ).to(config.device)
     LR          = 3e-4     # AdamW learning rate (paper default)
