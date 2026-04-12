@@ -139,10 +139,9 @@ ax.axhline(mlp_nll.mean(),  color="#2980b9", linewidth=1.0, linestyle="--",
 ax.axhline(poco_nll.mean(), color="#e74c3c", linewidth=1.0, linestyle="--",
            label=f"POCO (prob.) mean NLL = {poco_nll.mean():.4f}")
 
-ax.set_xlabel("Prediction step  (frames)", fontsize=12)
+ax.set_xlabel("Prediction Step  (frames)", fontsize=12)
 ax.set_ylabel("Gaussian NLL", fontsize=12)
-ax.set_title("Gaussian NLL vs prediction horizon\n"
-             "C=48  |  Top-128 PCs  |  Zebrafish Ahrens (Subject 0)",
+ax.set_title("Gaussian NLL vs Prediction Horizon\n",
              fontsize=12, fontweight="bold")
 ax.set_xticks(steps)
 ax.legend(fontsize=10, framealpha=0.7)
