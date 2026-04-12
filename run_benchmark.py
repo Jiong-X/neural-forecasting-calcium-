@@ -33,7 +33,7 @@ def run_deterministicPOCO():
     train(model, config, optimizer, criterion)
 
 def run_StudentTProbPOCO():
-    config = trainingConfig(model_name="ProbabilisticPOCO")
+    config = trainingConfig(model_name="StudentTProbabilisticPOCO")
     model = ProbabilisticForecaster(
     seq_length  = config.sequence_length,
     pred_length = config.pred_length,
