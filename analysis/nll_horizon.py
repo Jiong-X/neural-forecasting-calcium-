@@ -87,24 +87,26 @@ mlp_model  = _load_mlp()
 def eval_nll_per_step(model, loader):
     """
     Return (PRED_LEN,) array of mean Gaussian NLL per forecast step.
-    NLL = -log p(y | mu, sigma), averaged over batch and PCs.
+    NLL = -log p(y | mu, sigma), averaged over all windows and PCs.
+    Accumulates sums rather than per-batch means to correctly weight
+    the last (smaller) batch — consistent with GaussianNllLoss in trainer.py.
     """
-    nll_sum = np.zeros(PRED_LEN)
-    n_batch = 0
+    nll_sum   = np.zeros(PRED_LEN)
+    n_samples = 0
     with torch.no_grad():
         for X, Y in loader:
             X = X.to(device)   # (B, context_len, N)
             Y = Y.to(device)   # (B, pred_len,    N)
+            B = X.size(0)
 
             pred  = model(X)
-            dist  = Normal(pred.mean, pred.sigma)        # (B, pred_len, N)
-            nll   = -dist.log_prob(Y)                    # (B, pred_len, N)
-            nll_sum += nll.mean(dim=(0, 2)).cpu().numpy()  # mean over B and N
-            n_batch += 1
+            dist  = Normal(pred.mean, pred.sigma)           # (B, pred_len, N)
+            nll   = -dist.log_prob(Y)                       # (B, pred_len, N)
+            nll_sum   += nll.sum(dim=(0, 2)).cpu().numpy()  # sum over B and N
+            n_samples += B * Y.size(2)                      # B × N
 
-    return nll_sum / n_batch
-
-
+    return nll_sum / n_samples
+  
 print("\nEvaluating POCO (prob.) NLL ...")
 poco_nll = eval_nll_per_step(prob_model, test_loader)
 
