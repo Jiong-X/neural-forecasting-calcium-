@@ -36,7 +36,8 @@ neural-forecasting-calcium/
 │   └── *.npz                         # Loss curves and metric arrays
 │
 ├── analysis/
-│   └── normality_pooled.py           # Pooled normality test (skewness, kurtosis, D'Agostino)
+│   ├── normality_pooled.py           # Pooled normality test (skewness, kurtosis, D'Agostino)
+│   └── uncertainty.py                # MC-Dropout: aleatoric + epistemic decomposition
 │
 ├── src/
 │   ├── baseline_models/
@@ -188,9 +189,12 @@ and produces MAE/NLL metrics and prediction figures.
 ```bash
 # Gaussian likelihood validation
 python analysis/normality_pooled.py       # pooled skewness, kurtosis, D'Agostino + Q-Q
+
+# Uncertainty decomposition (MC Dropout — aleatoric + epistemic)
+python analysis/uncertainty.py
 ```
 
-Figures saved to `results/`.
+Results saved to `results/`.
 
 ---
 

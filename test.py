@@ -43,8 +43,11 @@ for k, v in metrics.items():
 plot_predictions(model, test_loader, DEVICE, save_dir="results/figures")
 print("Figures saved to results/figures/")
 
-# ── Additional figures ────────────────────────────────────────────────────────
+# ── Uncertainty decomposition (MC Dropout) ───────────────────────────────────
 import runpy
+runpy.run_path("analysis/uncertainty.py")
+
+# ── Additional figures ────────────────────────────────────────────────────────
 import matplotlib.pyplot as plt
 plt.ion()
 runpy.run_path("results/metrics_table.py")
