@@ -9,24 +9,6 @@ import torch
 
 from typing import Union
 
-# ---------------------------------------------------------------------------
-# Dataset 
-# ---------------------------------------------------------------------------
-
-# sliding-window approach
-class CalciumDataset():
-    def __init__(self, traces: np.ndarray, context_len: int, pred_len: int):
-        seq_len = context_len + pred_len
-        X, Y = [], []
-        for t in range(len(traces) - seq_len + 1):
-            X.append(traces[t : t + context_len])
-            Y.append(traces[t + context_len : t + seq_len])
-        self.X = torch.tensor(np.array(X))   # (S, context_len, N)
-        self.Y = torch.tensor(np.array(Y))   # (S, pred_len,    N)
-
-    def __len__(self):  return len(self.X)
-    def __getitem__(self, i): return self.X[i], self.Y[i]
-
 @dataclass
 class trainingConfig:
     model_name: str = field()
