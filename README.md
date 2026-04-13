@@ -10,45 +10,71 @@ uncertainty quantification.
 ## Project Structure
 
 ```
-COMP0197-project/
+neural-forecasting-calcium/
 │
 ├── data/
-│   ├── raw/                          # Raw HDF5 source files (not committed — see Data section)
+│   ├── raw/                          # Raw HDF5 source files (auto-downloaded)
 │   └── processed/                    # Preprocessed .npz files (one per subject)
 │
-├── models/                           # Saved model checkpoints (.pt, .npz)
+├── models/
+│   ├── saved/
+│   │   ├── model.pt                  # Probabilistic POCO (best checkpoint)
+│   │   └── best_MLP.pt              # MLP ablation (best checkpoint)
+│   ├── best_calcium_ar.npz          # AR baseline
+│   ├── best_calcium_poco.pt         # Deterministic POCO
+│   ├── best_dlinear.pt              # DLinear baseline
+│   ├── best_lstm.pt                 # LSTM baseline
+│   ├── best_nlinear.pt              # NLinear baseline
+│   ├── best_tsmixer.pt              # TSMixer baseline
+│   └── best_vanilla_rnn.pt          # Vanilla RNN baseline
 │
 ├── results/
-│   ├── plots/                        # Generated figures
+│   ├── plots/                        # Generated analysis figures
+│   ├── figures/                      # Test-set prediction figures
 │   ├── logs/                         # Per-model training logs
-│   └── *.npz / *.txt                 # Loss curves and metrics
+│   └── *.npz                         # Loss curves and metric arrays
 │
-├── src/                              # Utility modules (dataset, evaluate, train_utils)
-├── poco_src/                         # POCO model configs and utilities
+├── analysis/
+│   ├── gaussian_diagnostics.py       # Per-PC Shapiro-Wilk + Q-Q plots
+│   ├── mae_horizon.py                # MAE as a function of prediction horizon
+│   ├── nll_horizon.py                # NLL as a function of prediction horizon
+│   ├── normality_pooled.py           # Pooled normality test (skewness, kurtosis, D'Agostino)
+│   ├── plot_ablation.py              # Ablation: full POCO (prob.) vs MLP-only head
+│   ├── plot_comparison.py            # Deterministic vs probabilistic POCO comparison
+│   ├── plot_poco_prob.py             # Prediction intervals and uncertainty bands
+│   └── uncertainty.py                # MC-Dropout: aleatoric + epistemic decomposition
 │
-├── standalone_poco.py                # POCO backbone — Perceiver-IO + rotary encodings
-├── preprocess.py                     # Raw HDF5 → processed .npz (multi-session)
-├── dataloader.py                     # Source-agnostic data loader (npz / h5 / npy / csv)
+├── src/
+│   ├── baseline_models/
+│   │   ├── AR.py                     # Autoregressive baseline (closed-form OLS)
+│   │   ├── DLinear.py                # Decomposition-Linear baseline
+│   │   ├── LSTM.py                   # LSTM baseline
+│   │   ├── MLP.py                    # MLP head (used in ablation)
+│   │   ├── NLinear.py                # Normalisation-Linear baseline
+│   │   ├── RNN.py                    # Vanilla RNN baseline
+│   │   ├── TSMixer.py                # Time-Series Mixer baseline
+│   │   └── TexFilter.py              # Frequency-domain filter baseline
+│   ├── poco_src/
+│   │   ├── configs/                  # POCO configuration files
+│   │   ├── standalone_poco.py        # POCO backbone — Perceiver-IO + rotary encodings
+│   │   ├── multisession.py           # Multi-session POCO variant
+│   │   ├── prob_highdrop.py          # High-dropout probabilistic variant
+│   │   └── prob_multisession.py      # Probabilistic multi-session variant
+│   ├── dataset.py                    # Dataset loading, preprocessing & download pipeline
+│   ├── evaluate.py                   # Evaluation utilities (metrics + plotting)
+│   ├── metrics.py                    # Loss functions and metric tracking
+│   ├── model.py                      # ProbabilisticForecaster & DeterministicPOCO
+│   ├── trainer.py                    # Training loop with early stopping
+│   └── util.py                       # Configuration, data utilities, baseline data loaders
 │
-│   ── Model training scripts ────────────────────────────────────────────────────────
-├── POCO.py                           # POCO deterministic — point forecast
-├── POCO_prob.py                      # POCO probabilistic — Gaussian N(μ, σ²) output head
-│
-│   ── Analysis & visualisation ────────────────────────────────────────────────────
-├── uncertainty.py                    # MC-Dropout: aleatoric + epistemic decomposition
-├── eval_horizon.py                   # MAE / NLL as a function of prediction horizon
-├── calibration.py                    # Reliability diagram — empirical vs nominal coverage
-├── gaussian_diagnostics.py           # Shapiro-Wilk + Q-Q plots per PC
-├── normality_pooled.py               # Pooled normality test (skewness, kurtosis, D'Agostino)
-├── bimodality_check.py               # Bimodality coefficient + per-neuron KDE
-├── estimate_df.py                    # Estimate Student-t ν from residuals (kurtosis + MLE)
-├── plot_poco_prob.py                 # Prediction intervals and uncertainty bands
-├── plot_comparison.py                # MAE bar chart: POCO det vs POCO prob
-│
+├── train.py                          # End-to-end training (data retrieval + all models)
+├── test.py                           # Evaluation: load models, produce metrics and figures
+├── run_benchmark.py                  # Train deterministic baselines and Student-t variant
 ├── train_all.sh                      # Train all models sequentially with live logging
+├── instruction.pdf                   # Reproduction instructions (packages + steps)
 ├── requirements.txt
-├── .gitignore
-└── .md
+├── LICENSE
+└── README.md
 ```
 
 ---
