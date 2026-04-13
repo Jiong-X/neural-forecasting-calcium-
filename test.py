@@ -43,7 +43,12 @@ for k, v in metrics.items():
 plot_predictions(model, test_loader, DEVICE, save_dir="results/figures")
 print("Figures saved to results/figures/")
 
-# ── Horizon plots ─────────────────────────────────────────────────────────────
+# ── Additional figures ────────────────────────────────────────────────────────
 import runpy
-runpy.run_path("analysis/mae_horizon.py")
-runpy.run_path("analysis/nll_horizon.py")
+import matplotlib.pyplot as plt
+plt.ion()
+runpy.run_path("results/metrics_table.py")
+runpy.run_path("results/predict_PCs.py")
+runpy.run_path("results/uncertainty_by_pc.py")
+plt.ioff()
+plt.show()

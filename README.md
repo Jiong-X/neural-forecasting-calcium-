@@ -10,60 +10,79 @@ uncertainty quantification.
 ## Project Structure
 
 ```
-COMP0197-project/
+neural-forecasting-calcium/
 │
 ├── data/
-│   ├── raw/                          # Raw HDF5 source files (not committed — see Data section)
+│   ├── raw/                          # Raw HDF5 source files (auto-downloaded)
 │   └── processed/                    # Preprocessed .npz files (one per subject)
 │
-├── models/                           # Saved model checkpoints (.pt, .npz)
+├── models/
+│   ├── saved/
+│   │   ├── model.pt                  # Probabilistic POCO (best checkpoint)
+│   │   ├── best_MLP.pt              # MLP ablation (best checkpoint)
+│   │   └── best_DeterministicPoco.pt # Deterministic POCO (best checkpoint)
+│   ├── best_calcium_ar.npz          # AR baseline
+│   ├── best_calcium_poco.pt         # Deterministic POCO
+│   ├── best_dlinear.pt              # DLinear baseline
+│   ├── best_lstm.pt                 # LSTM baseline
+│   ├── best_nlinear.pt              # NLinear baseline
+│   ├── best_tsmixer.pt              # TSMixer baseline
+│   └── best_vanilla_rnn.pt          # Vanilla RNN baseline
 │
 ├── results/
-│   ├── plots/                        # Generated figures
+│   ├── plots/                        # Generated analysis figures
+│   ├── figures/                      # Test-set prediction figures
 │   ├── logs/                         # Per-model training logs
-│   └── *.npz / *.txt                 # Loss curves and metrics
+│   └── *.npz                         # Loss curves and metric arrays
 │
-├── src/                              # Utility modules (dataset, evaluate, train_utils)
-├── poco_src/                         # POCO model configs and utilities
+├── analysis/
+│   └── normality_pooled.py           # Pooled normality test (skewness, kurtosis, D'Agostino)
 │
-├── standalone_poco.py                # POCO backbone — Perceiver-IO + rotary encodings
-├── preprocess.py                     # Raw HDF5 → processed .npz (multi-session)
-├── dataloader.py                     # Source-agnostic data loader (npz / h5 / npy / csv)
+├── src/
+│   ├── baseline_models/
+│   │   ├── AR.py                     # Autoregressive baseline (closed-form OLS)
+│   │   ├── DLinear.py                # Decomposition-Linear baseline
+│   │   ├── LSTM.py                   # LSTM baseline
+│   │   ├── MLP.py                    # MLP head (used in ablation)
+│   │   ├── NLinear.py                # Normalisation-Linear baseline
+│   │   ├── RNN.py                    # Vanilla RNN baseline
+│   │   ├── TSMixer.py                # Time-Series Mixer baseline
+│   │   └── TexFilter.py              # Frequency-domain filter baseline
+│   ├── poco_src/
+│   │   ├── configs/                  # POCO configuration files
+│   │   ├── standalone_poco.py        # POCO backbone — Perceiver-IO + rotary encodings
+│   │   ├── multisession.py           # Multi-session POCO variant
+│   │   ├── prob_highdrop.py          # High-dropout probabilistic variant
+│   │   └── prob_multisession.py      # Probabilistic multi-session variant
+│   ├── dataset.py                    # Dataset loading, preprocessing & download pipeline
+│   ├── evaluate.py                   # Evaluation utilities (metrics + plotting)
+│   ├── metrics.py                    # Loss functions and metric tracking
+│   ├── model.py                      # ProbabilisticForecaster & DeterministicPOCO
+│   ├── trainer.py                    # Training loop with early stopping
+│   └── util.py                       # Configuration, data utilities, baseline data loaders
 │
-│   ── Model training scripts ────────────────────────────────────────────────────────
-├── POCO.py                           # POCO deterministic — point forecast
-├── POCO_prob.py                      # POCO probabilistic — Gaussian N(μ, σ²) output head
-│
-│   ── Analysis & visualisation ────────────────────────────────────────────────────
-├── uncertainty.py                    # MC-Dropout: aleatoric + epistemic decomposition
-├── eval_horizon.py                   # MAE / NLL as a function of prediction horizon
-├── calibration.py                    # Reliability diagram — empirical vs nominal coverage
-├── gaussian_diagnostics.py           # Shapiro-Wilk + Q-Q plots per PC
-├── normality_pooled.py               # Pooled normality test (skewness, kurtosis, D'Agostino)
-├── bimodality_check.py               # Bimodality coefficient + per-neuron KDE
-├── estimate_df.py                    # Estimate Student-t ν from residuals (kurtosis + MLE)
-├── plot_poco_prob.py                 # Prediction intervals and uncertainty bands
-├── plot_comparison.py                # MAE bar chart: POCO det vs POCO prob
-│
+├── train.py                          # End-to-end training (data retrieval + all models)
+├── test.py                           # Evaluation: load models, produce metrics and figures
+├── run_benchmark.py                  # Train deterministic baselines and Student-t variant
 ├── train_all.sh                      # Train all models sequentially with live logging
+├── instruction.pdf                   # Reproduction instructions (packages + steps)
 ├── requirements.txt
-├── .gitignore
-└── .md
+├── LICENSE
+└── README.md
 ```
 
 ---
 
 ## Environment Setup
 
-One environment covers everything.
+Uses the `comp0197-pt` micromamba environment with two additional packages.
 
 ```bash
-micromamba create -n poco python=3.10 -y
-micromamba activate poco
-pip install -r requirements.txt
+micromamba activate comp0197-pt
+pip install scipy matplotlib
 ```
 
-Core dependencies: `torch`, `numpy`, `matplotlib`, `einops`, `scipy`
+Core dependencies: `torch`, `numpy`, `matplotlib`, `scipy`
 
 > **Optional — only needed to preprocess raw HDF5 files (first run of `train.py`):**
 > ```bash
@@ -71,11 +90,6 @@ Core dependencies: `torch`, `numpy`, `matplotlib`, `einops`, `scipy`
 > ```
 > PCA is implemented via `numpy.linalg.svd` — scikit-learn is not required.
 > Skip entirely if `data/processed/*.npz` already exists.
-
-> **Optional — speeds up attention on GPU:**
-> ```bash
-> pip install xformers
-> ```
 
 ---
 
@@ -119,7 +133,7 @@ All subsequent runs load instantly from `data/processed/0.npz`.
 
 ### Manual placement (multi-session models)
 
-The multi-session models (`POCO_multisession.py`, `POCO_prob_multisession.py`)
+The multi-session models (`src/poco_src/multisession.py`, `src/poco_src/prob_multisession.py`)
 require subjects 0–3. Download them manually from the figshare link above
 and place as:
 
@@ -131,57 +145,8 @@ data/raw/
 └── subject_3/TimeSeries.h5
 ```
 
-Then preprocess all subjects:
-```bash
-python preprocess.py --raw_dir data/raw --out_dir data/processed --subjects 0 1 2 3
-```
-
-### Using your own data
-
-`dataloader.py` accepts four formats with no code changes required:
-
-| Format | Extension        | Notes                                               |
-|--------|------------------|-----------------------------------------------------|
-| `npz`  | `.npz`           | Output of `preprocess.py`; looks for keys `PC`, `M`, `data` |
-| `h5`   | `.h5` / `.hdf5`  | Any HDF5 file; default key `CellResp`               |
-| `npy`  | `.npy`           | Plain NumPy array, shape `(T, N)`                   |
-| `csv`  | `.csv` / `.tsv`  | Rows = timesteps, columns = channels                |
-
-**Requirements for your own data:**
-- Shape `(T, N)` — T timesteps, N channels (neurons or PCs)
-- Values should be normalised. If you have raw fluorescence, compute ΔF/F first:
-  `dff = (F - F0) / F0` where `F0` is a rolling baseline percentile.
-- Minimum length: `context_len + pred_len + 1` timesteps (default: 48 + 16 + 1 = 65)
-
-```python
-from dataloader import get_loaders
-
-# Preprocessed .npz
-train_loader, val_loader, N = get_loaders("data/processed/0.npz")
-
-# Raw HDF5
-train_loader, val_loader, N = get_loaders("data/raw/subject_0/TimeSeries.h5",
-                                          fmt="h5", h5_key="CellResp")
-
-# Plain NumPy array passed directly
-import numpy as np
-arr = np.random.randn(3000, 128).astype("float32")
-train_loader, val_loader, N = get_loaders(arr)
-
-# CSV
-train_loader, val_loader, N = get_loaders("my_traces.csv", fmt="csv", csv_header=True)
-```
-
-Quick sanity check:
-```bash
-python dataloader.py --path data/processed/0.npz --n_channels 128
-python dataloader.py --path data/raw/subject_0/TimeSeries.h5 --fmt h5
-```
-
 **Known limitations:**
 - Validated on zebrafish calcium imaging; untested on electrophysiology, fMRI, or mice.
-- `preprocess.py` skips ΔF/F — assumes input is already baseline-corrected.
-  Raw Suite2P / CaImAn output needs a ΔF/F step beforehand.
 - PCA is fit on the training split. Very short recordings (< ~500 steps) give noisy PCs.
 - Multi-session POCO assumes all sessions have the same number of input channels N.
 
@@ -191,55 +156,41 @@ python dataloader.py --path data/raw/subject_0/TimeSeries.h5 --fmt h5
 
 ### Step 1 — Train
 
-#### All models sequentially
-
 ```bash
-micromamba activate poco
-bash train_all.sh
+micromamba activate comp0197-pt
+python train.py
 ```
 
-Each model logs to `results/logs/<model>.log`. Monitor progress:
+This single command:
+1. Downloads and preprocesses data automatically (~2 GB, first run only)
+2. Trains the **Probabilistic POCO** model (Gaussian output head)
+3. Trains the **MLP-only ablation** model
+4. Trains the **Deterministic POCO** baseline
+
+Checkpoints are saved to `models/saved/` and loss curves to `results/`.
+
+To also train the Student-t variant:
 ```bash
-tail -f results/logs/poco_prob.log      # follow one model live
-tail -n 1 results/logs/*.log            # last line from every model
+python run_benchmark.py
 ```
 
-#### Individual models
+### Step 2 — Evaluate
 
 ```bash
-python POCO.py        # deterministic POCO
-python POCO_prob.py   # probabilistic POCO (Gaussian output head)
+python test.py
 ```
 
-Checkpoints are saved to `models/` and loss curves to `results/`.
+Loads the saved Probabilistic POCO checkpoint, evaluates on the held-out test set,
+and produces MAE/NLL metrics and prediction figures.
 
-### Step 2 — Analysis
+### Step 3 — Analysis
 
 ```bash
-# Uncertainty decomposition (MC Dropout — requires POCO_prob checkpoint)
-python uncertainty.py
-
-# Prediction accuracy vs forecast horizon
-python eval_horizon.py
-
-# Calibration — does stated confidence match empirical coverage?
-python calibration.py
-
 # Gaussian likelihood validation
-python normality_pooled.py     # pooled skewness, kurtosis, D'Agostino test + Q-Q
-python gaussian_diagnostics.py # per-PC Shapiro-Wilk + Q-Q plots
-python bimodality_check.py     # bimodality coefficient + KDE per neuron
-python estimate_df.py          # estimate Student-t ν from residuals (kurtosis + MLE)
+python analysis/normality_pooled.py       # pooled skewness, kurtosis, D'Agostino + Q-Q
 ```
 
-### Step 3 — Visualise
-
-```bash
-python plot_poco_prob.py    # prediction intervals and uncertainty bands
-python plot_comparison.py   # MAE / MSE comparison (NLinear, TSMixer, POCO det, POCO prob)
-```
-
-All figures saved to `results/plots/`.
+Figures saved to `results/`.
 
 ---
 
@@ -346,16 +297,18 @@ not model ignorance. Higher dropout increases the epistemic signal.
 
 ## Changing the Forecast Horizon
 
-Each script has two constants near the top:
+Each model family has its own constants near the top of its script:
 
-| Script family              | Context var  | Horizon var  | Default C | Default P |
-|----------------------------|--------------|--------------|-----------|-----------|
-| RNN / LSTM / AR            | `SEQ_LEN`    | `PRED_STEPS` | 48        | 16        |
-| NLinear / DLinear / TSMixer| `SEQ_LEN`    | `PRED_LEN`   | 48        | 16        |
-| POCO (all variants)        | `CONTEXT`    | `PRED_LEN`   | 48        | 16        |
+| Script family              | Sequence var      | Horizon var    | Default seq | Default P |
+|----------------------------|-------------------|----------------|-------------|-----------|
+| RNN / LSTM                 | `SEQ_LEN`         | `PRED_STEPS`   | 64          | 16        |
+| AR                         | `ORDER`           | `HORIZON`      | 48          | 16        |
+| NLinear / DLinear / TSMixer| `SEQ_LEN`         | `PRED_LEN`     | 64          | 16        |
+| POCO (all variants)        | `sequence_length` | `pred_length`  | 64          | 16        |
 
 RNN, LSTM, and AR use autoregressive rollout (one step at a time).
 Linear and POCO models predict all P steps in a single forward pass.
+POCO hyperparameters are configured via `trainingConfig` in `src/util.py`.
 
 ---
 
