@@ -1,3 +1,7 @@
+# GenAI Assistance Statement:
+# Claude (Anthropic) was used to assist in structuring this file.
+# All outputs were verified for technical accuracy by the group.
+
 """
 POCO Multi-Session — Population-Conditioned Forecaster trained across all
 4 zebrafish subjects simultaneously.

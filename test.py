@@ -42,8 +42,3 @@ for k, v in metrics.items():
 # ── Visualise ─────────────────────────────────────────────────────────────────
 plot_predictions(model, test_loader, DEVICE, save_dir="results/figures")
 print("Figures saved to results/figures/")
-
-# ── Horizon plots ─────────────────────────────────────────────────────────────
-import runpy
-runpy.run_path("analysis/mae_horizon.py")
-runpy.run_path("analysis/nll_horizon.py")

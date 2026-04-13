@@ -1,3 +1,7 @@
+# GenAI Assistance Statement:
+# Claude (Anthropic) was used to assist in structuring this file.
+# All outputs were verified for technical accuracy by the group.
+
 """
 Vanilla LSTM for predicting neural activity from calcium imaging data.
 Uses nn.LSTM with a single linear output head — no encoder-decoder,
