@@ -42,3 +42,13 @@ for k, v in metrics.items():
 # ── Visualise ─────────────────────────────────────────────────────────────────
 plot_predictions(model, test_loader, DEVICE, save_dir="results/figures")
 print("Figures saved to results/figures/")
+
+# ── Additional figures ────────────────────────────────────────────────────────
+import runpy
+import matplotlib.pyplot as plt
+plt.ion()
+runpy.run_path("results/metrics_table.py")
+runpy.run_path("results/predict_PCs.py")
+runpy.run_path("results/uncertainty_by_pc.py")
+plt.ioff()
+plt.show()
