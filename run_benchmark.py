@@ -149,4 +149,12 @@ def run_RNN():
     train(model, config, optimizer, criterion)
 
 if __name__ == "__main__":
+    run_MLP()
+    run_deterministicPOCO()
+    run_StudentTProbPOCO()
+    run_DLinear()
+    run_NLinear()
+    run_TexFilter()
+    run_TSMixer()
+    run_LSTM()
     run_RNN()
