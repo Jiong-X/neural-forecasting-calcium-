@@ -20,13 +20,11 @@ Run:
   python3 TexFilter.py
 """
 
-import os
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from src.util import fetch_data_loaders
+
+from src.metrics import Prediction
 
 # ---------------------------------------------------------------------------
 # RevIN  (copied verbatim from POCO/models/layers/normalizer.py)
@@ -152,12 +150,11 @@ class TexFilter(nn.Module):
         return torch.view_as_complex(y)
 
     # ------------------------------------------------------------------
-    def forward(self, x_list):
+    def forward(self, x):
         """
-        x_list : list of one (context_len, B, N) tensor
-        returns : list of one (pred_len,    B, N) tensor
+        x_list : one (B, context_len, N) tensor 
+        returns : one (pred_len, B, N) tensor
         """
-        x = x_list[0].permute(1, 0, 2)   # → (B, context_len, N)
         B, L, N = x.shape
 
         x = self.revin(x, "norm")         # instance normalise
@@ -175,57 +172,12 @@ class TexFilter(nn.Module):
         x = self.output(x)                # (B, N, pred_len)
         x = x.permute(0, 2, 1)           # → (B, pred_len, N)
         x = self.revin(x, "denorm")
-        x = x.permute(1, 0, 2)           # → (pred_len, B, N)
-        return [x]
+        return Prediction(mean=x)
 
-
-
-
-# ---------------------------------------------------------------------------
-# Training / evaluation helpers
-# ---------------------------------------------------------------------------
-
-def train_epoch(model, loader, optimiser, device):
-    model.train()
-    total = 0.0
-    for X, Y in loader:
-        X, Y = X.to(device), Y.to(device)
-        optimiser.zero_grad()
-        pred = model([X])[0]             # (pred_len, B, N)
-        loss = F.mse_loss(pred, Y)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimiser.step()
-        total += loss.item() * X.shape[1]
-    return total / len(loader.dataset)
-
-
-@torch.no_grad()
-def eval_epoch(model, loader, device):
-    model.eval()
-    total_mse, total_mae, n = 0.0, 0.0, 0
-    for X, Y in loader:
-        X, Y  = X.to(device), Y.to(device)
-        pred  = model([X])[0]
-        total_mse += F.mse_loss(pred, Y).item() * X.shape[1]
-        total_mae += (pred - Y).abs().mean().item() * X.shape[1]
-        n += X.shape[1]
-    return total_mse / n, total_mae / n
-
-
+"""
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    torch.manual_seed(42)
-    np.random.seed(42)
-
-    DATA_PATH    = "data/processed/0.npz"
-    MODEL_PATH   = "models/best_texfilter.pt"
-    RESULTS_PATH = "results/texfilter_losses.npz"
-    os.makedirs("models",  exist_ok=True)
-    os.makedirs("results", exist_ok=True)
 
     # --- Hyperparameters (from POCO repo config) ---
     N_PCS      = 128
@@ -240,51 +192,8 @@ if __name__ == "__main__":
     TRAIN_FRAC = 0.6
     VAL_FRAC   = 0.2
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-
-    # --- Data ---
-    CONTEXT_LEN  = SEQ_LEN - PRED_LEN
-
-    train_loader, val_loader, N = fetch_data_loaders("TexFilter",SEQ_LEN, PRED_LEN, TRAIN_FRAC, VAL_FRAC, BATCH_SIZE)
-    
-    
     # --- Model ---
-    model = TexFilter(N, CONTEXT_LEN, PRED_LEN,
-                      embed_size=EMBED_SIZE, hidden_size=HIDDEN,
-                      dropout=DROPOUT).to(device)
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable parameters: {n_params:,}")
-
+    model = TexFilter(N, CONTEXT_LEN, PRED_LEN,embed_size=EMBED_SIZE, hidden_size=HIDDEN, dropout=DROPOUT).to(device)
     optimiser = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimiser, patience=5, factor=0.5
-    )
-
-    # --- Training ---
-    train_mses, val_mses, val_maes = [], [], []
-    best_mse = float("inf")
-
-    for epoch in range(1, EPOCHS + 1):
-        train_mse        = train_epoch(model, train_loader, optimiser, device)
-        val_mse, val_mae = eval_epoch(model, val_loader, device)
-        scheduler.step(val_mse)
-
-        train_mses.append(train_mse)
-        val_mses.append(val_mse)
-        val_maes.append(val_mae)
-
-        tag = " *" if val_mse < best_mse else ""
-        if val_mse < best_mse:
-            best_mse = val_mse
-            torch.save(model.state_dict(), MODEL_PATH)
-
-        print(f"Epoch {epoch:3d}/{EPOCHS}  "
-              f"train={train_mse:.4f}  "
-              f"val_mse={val_mse:.4f}  "
-              f"val_mae={val_mae:.4f}{tag}")
-
-    print(f"\nBest val MSE: {best_mse:.4f}  — saved to {MODEL_PATH}")
-    np.savez(RESULTS_PATH,
-             train_mses=train_mses, val_mses=val_mses, val_maes=val_maes)
-    print(f"Loss history saved to {RESULTS_PATH}")
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimiser, patience=5, factor=0.5)
+"""

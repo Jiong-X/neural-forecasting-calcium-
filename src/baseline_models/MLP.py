@@ -71,12 +71,11 @@ class MLPHead(nn.Module):
         logvar = (2 * sigma.log()).transpose(1, 2)                         # (B, pred_len, N)
         return Prediction(mean=mu, logvar=logvar)
 
+
+"""
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
-"""
-if __name__ == "__main__":
 
     # Hyperparameters — match POCO_prob exactly for a fair ablation
     N_PCS      = 128    # cap at 128 PCs, same as POCO_prob
@@ -90,17 +89,7 @@ if __name__ == "__main__":
     VAL_FRAC   = 0.2
     PATIENCE   = 10
 
-
-    T, N   = traces.shape
-
-    train_end = int(T * TRAIN_FRAC)
-    val_end   = int(T * (TRAIN_FRAC + VAL_FRAC))
-
-    model = MLPHead(
-        n_neurons=N, context_len=CONTEXT, cond_dim=COND_DIM, pred_len=PRED_LEN,
-    ).to(device)
-    print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
-
+    model = MLPHead(n_neurons=N, context_len=CONTEXT, cond_dim=COND_DIM, pred_len=PRED_LEN).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 """
