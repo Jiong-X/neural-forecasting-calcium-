@@ -4,19 +4,6 @@ data/raw/
 # Processed data (regenerate with preprocess.py)
 data/processed/
 
-# Model weights
-models/*.pt
-models/*.npz
-models/saved/
-
-# Result artefacts (regenerate by running scripts)
-results/plots/
-results/figures/
-results/metrics/
-results/logs/
-results/*.npz
-results/*.txt
-
 # Python
 __pycache__/
 *.py[cod]
