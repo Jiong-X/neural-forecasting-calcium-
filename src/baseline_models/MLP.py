@@ -14,6 +14,9 @@ Architecture:
 
 Dimensions match POCO_prob exactly (COND_DIM=1024, PRED_LEN=16, context_len=48)
 so any performance gap is attributable solely to the POYO encoder.
+
+Run via run_benchmark.py
+
 """
 
 import torch

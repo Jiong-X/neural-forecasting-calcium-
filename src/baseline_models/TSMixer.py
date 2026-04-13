@@ -14,8 +14,7 @@ Intuition for calcium imaging:
 Reference: Chen et al. (2023) "TSMixer: An All-MLP Architecture for
            Time Series Forecasting." arXiv:2303.06053.
 
-Run with:
-  /home/jiongx/micromamba/envs/comp0197-pt/bin/python3 TSMixer.py
+Run via run_benchmark.py
 """
 
 import torch.nn as nn

@@ -1,6 +1,9 @@
 """
 Vanilla RNN for predicting neural activity from calcium imaging data.
 Uses nn.RNN (tanh activations, no gating) — not LSTM or GRU.
+
+Run via run_benchmark.py
+
 """
 
 import torch

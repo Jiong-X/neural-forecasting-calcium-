@@ -14,8 +14,8 @@ fast oscillations (seasonal) — both present in calcium imaging traces.
 Reference: Zeng et al. (2023) "Are Transformers Effective for Time Series
            Forecasting?" AAAI 2023.
 
-Run with:
-  /home/jiongx/micromamba/envs/comp0197-pt/bin/python3 DLinear.py
+Run via run_benchmark.py
+
 """
 
 import torch

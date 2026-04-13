@@ -2,6 +2,9 @@
 Vanilla LSTM for predicting neural activity from calcium imaging data.
 Uses nn.LSTM with a single linear output head — no encoder-decoder,
 no teacher forcing.
+
+Run via run_benchmark.py
+
 """
 
 import torch

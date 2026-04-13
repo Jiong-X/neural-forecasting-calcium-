@@ -12,8 +12,8 @@ This is the simplest possible learned forecaster — one scalar weight per
 Reference: Zeng et al. (2023) "Are Transformers Effective for Time Series
            Forecasting?" AAAI 2023.
 
-Run with:
-  /home/jiongx/micromamba/envs/comp0197-pt/bin/python3 NLinear.py
+Run via run_benchmark.py
+
 """
 
 import torch

@@ -16,8 +16,8 @@ Architecture (from the POCO paper / POCO repository):
 Source: POCO repo — models/multi_session_models.py  (class TexFilter)
         models/layers/normalizer.py                 (class RevIN)
 
-Run:
-  python3 TexFilter.py
+Run via run_benchmark.py
+
 """
 
 import torch
